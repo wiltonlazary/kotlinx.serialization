@@ -117,7 +117,7 @@ class SchemaTest {
     fun enumDescriptors() {
         val dataDescriptor = DataWithEnum.serializer().descriptor
         val enumDesc = dataDescriptor.getElementDescriptor(1)
-        val serialName = if (isJvm()) "kotlinx.serialization.SampleEnum" else "SampleEnum"
+        val serialName = "kotlinx.serialization.SampleEnum"
         val manualSerializer = CommonEnumSerializer<SampleEnum>(serialName)
 
         assertEquals(enumDesc, manualSerializer.descriptor)
