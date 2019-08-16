@@ -69,11 +69,7 @@ sealed class AbstractCollectionSerializer<TElement, TCollection, TBuilder>: KSer
 
     protected abstract fun readItem(decoder: CompositeDecoder, index: Int, builder: TBuilder, checkIndex: Boolean = true)
 
-    private fun readAll(decoder: CompositeDecoder, builder: TBuilder, startIndex: Int, size: Int) {
-        require(size >= 0) { "Size must be known in advance when using READ_ALL" }
-        for (index in 0 until size)
-            readItem(decoder, startIndex + index, builder, checkIndex = false)
-    }
+    protected abstract fun readAll(decoder: CompositeDecoder, builder: TBuilder, startIndex: Int, size: Int)
 }
 
 sealed class ListLikeSerializer<TElement, TCollection, TBuilder>(val elementSerializer: KSerializer<TElement>) :
@@ -94,6 +90,12 @@ sealed class ListLikeSerializer<TElement, TCollection, TBuilder>(val elementSeri
         encoder.endStructure(descriptor)
     }
 
+    protected final override fun readAll(decoder: CompositeDecoder, builder: TBuilder, startIndex: Int, size: Int) {
+        require(size >= 0) { "Size must be known in advance when using READ_ALL" }
+        for (index in 0 until size)
+            readItem(decoder, startIndex + index, builder, checkIndex = false)
+    }
+
     protected override fun readItem(decoder: CompositeDecoder, index: Int, builder: TBuilder, checkIndex: Boolean) {
         builder.insert(index, decoder.decodeSerializableElement(descriptor, index, elementSerializer))
     }
@@ -108,6 +110,12 @@ sealed class MapLikeSerializer<TKey, TVal, TCollection, TBuilder: MutableMap<TKe
     abstract override val descriptor: MapLikeDescriptor
 
     final override val typeParams = arrayOf(keySerializer, valueSerializer)
+
+    protected final override fun readAll(decoder: CompositeDecoder, builder: TBuilder, startIndex: Int, size: Int) {
+        require(size >= 0) { "Size must be known in advance when using READ_ALL" }
+        for (index in 0 until size * 2 step 2)
+            readItem(decoder, startIndex + index, builder, checkIndex = false)
+    }
 
     final override fun readItem(decoder: CompositeDecoder, index: Int, builder: TBuilder, checkIndex: Boolean) {
         val key: TKey = decoder.decodeSerializableElement(descriptor, index, keySerializer)
