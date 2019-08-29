@@ -17,7 +17,7 @@ import kotlin.reflect.KClass
  * Currently, it has no guarantees neither on its reference transparency nor its [elementDescriptors], only on [kind].
  */
 public object PolymorphicClassDescriptor : SerialClassDescImpl("kotlin.Any") {
-    public override val kind: SerialKind = UnionKind.POLYMORPHIC
+    public override val kind: SerialKind = PolymorphicKind.OPEN
 
     init {
         // serial ids would be assigned automatically, since
