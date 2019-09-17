@@ -4,14 +4,11 @@
 
 package kotlinx.serialization
 
-import kotlinx.serialization.internal.IntSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.test.isJs
-import kotlinx.serialization.test.isNative
-import kotlin.reflect.*
-import kotlin.test.*
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
-@Ignore
 @UseExperimental(ImplicitReflectionSerializer::class)
 class SerializerResolvingTest {
 
