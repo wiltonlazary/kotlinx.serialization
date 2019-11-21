@@ -8,14 +8,14 @@ enableFeaturePreview('GRADLE_METADATA')
 include ':kotlinx-serialization-runtime'
 project(':kotlinx-serialization-runtime').projectDir = file('./runtime')
 
-include ':kotlinx-serialization-protobuf'
-project(':kotlinx-serialization-protobuf').projectDir = file('./formats/protobuf')
-
-include ':kotlinx-serialization-cbor'
-project(':kotlinx-serialization-cbor').projectDir = file('./formats/cbor')
-
-include ':kotlinx-serialization-runtime-configparser'
-project(':kotlinx-serialization-runtime-configparser').projectDir = file('./formats/config')
-
-include ':benchmark'
-project(':benchmark').projectDir = file('./benchmark')
+//include ':kotlinx-serialization-protobuf'
+//project(':kotlinx-serialization-protobuf').projectDir = file('./formats/protobuf')
+//
+////include ':kotlinx-serialization-cbor'
+////project(':kotlinx-serialization-cbor').projectDir = file('./formats/cbor')
+//
+//include ':kotlinx-serialization-runtime-configparser'
+//project(':kotlinx-serialization-runtime-configparser').projectDir = file('./formats/config')
+//
+//include ':benchmark'
+//project(':benchmark').projectDir = file('./benchmark')

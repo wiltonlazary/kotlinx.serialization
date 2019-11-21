@@ -14,8 +14,18 @@ kotlin {
         }
         fromPreset(presets.js, 'js') {
             nodejs {}
-            configure([compilations.main, compilations.test]) {
+            configure([compilations.main]) {
                 kotlinOptions {
+                    freeCompilerArgs += ['-Xir-produce-klib-dir']
+                    sourceMap = true
+                    moduleKind = "umd"
+                    metaInfo = true
+                }
+            }
+
+            configure([compilations.test]) {
+                kotlinOptions {
+                    freeCompilerArgs += ['-Xir-produce-js']
                     sourceMap = true
                     moduleKind = "umd"
                     metaInfo = true
