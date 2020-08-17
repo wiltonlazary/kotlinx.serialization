@@ -1,6 +1,3 @@
 # Module cbor
-Artifact id: `kotlinx-serialization-cbor`
-- Since version: 0.20.0
-- Platform: all supported platforms
-- Status: experimental
 
+Concise Binary Object Representation (CBOR) format implementation, as per [RFC 7049](https://tools.ietf.org/html/rfc7049). Located in separate `kotlinx-serialization-cbor` artifact.

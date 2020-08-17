@@ -38,13 +38,16 @@ cd "$PAGES_DIR"
 
 # Fixup all the old documentation files
 # Remove non-.html files
-REMOVE_FILES=$(find . -type f -not -name '.git')
+REMOVE_FILES=$(find . -type f  -not -name '.git')
 if [ "$REMOVE_FILES" != "" ] ; then
     git rm $REMOVE_FILES > /dev/null
 fi
 
 # Copy manually new documentation and flat out kotlinx-serialization
 cp -r "$DIST_DIR"/* "$PAGES_DIR"
+
+# Hack for the GH pages
+cp $PAGES_DIR/-modules.html $PAGES_DIR/index.html
 
 # Add it all to git
 #git add *
