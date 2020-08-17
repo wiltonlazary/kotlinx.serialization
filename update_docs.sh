@@ -5,7 +5,7 @@ set -e
 
 # Directories
 ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-DIST_DIR="$ROOT_DIR/build/dokka"
+DIST_DIR="$ROOT_DIR/build/dokka/htmlMultiModule"
 PAGES_DIR="$ROOT_DIR/build/pages"
 
 # Init options
@@ -22,7 +22,7 @@ else
 fi
 
 # Makes sure that site is built
-"$ROOT_DIR/gradlew" $GRADLE_OPT dokka
+"$ROOT_DIR/gradlew" $GRADLE_OPT dokkaHtmlMultiModule
 
 # Cleanup dist directory (and ignore errors)
 rm -rf "$PAGES_DIR" || true
@@ -38,20 +38,18 @@ cd "$PAGES_DIR"
 
 # Fixup all the old documentation files
 # Remove non-.html files
-REMOVE_FILES=$(find . -type f -not -name '*.html' -not -name '.git')
+REMOVE_FILES=$(find . -type f -not -name '.git')
 if [ "$REMOVE_FILES" != "" ] ; then
     git rm $REMOVE_FILES > /dev/null
 fi
 
 # Copy manually new documentation and flat out kotlinx-serialization
-find $DIST_DIR -maxdepth 1 -not -iname 'kotlinx-serialization' -exec cp '{}' "$PAGES_DIR/" ';'
-cp -r "$DIST_DIR/kotlinx-serialization/" "$PAGES_DIR/"
-
-# Now fix style.css, workaround for https://github.com/Kotlin/dokka/issues/163
-for file in $(find $PAGES_DIR -name '*.html'); do sed  -i '' 's/\.\.\/style.css/style.css/' $file; done
+cp -r "$DIST_DIR"/* "$PAGES_DIR"
 
 # Add it all to git
-git add *
+#git add *
+for file in $(find $PAGES_DIR -type f -name '*'); do git add $file; done
+
 
 # Commit docs for the new version
 if [ -z "$1" ] ; then
