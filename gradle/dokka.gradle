@@ -34,7 +34,3 @@ subprojects {
         }
     }
 }
-
-tasks.named("dokkaHtmlMultiModule") {
-    documentationFileName.set("MODULE.md")
-}
