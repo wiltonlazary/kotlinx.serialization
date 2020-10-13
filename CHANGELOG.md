@@ -1,3 +1,72 @@
+1.0.0 / 2020-10-08
+==================
+
+The first public stable release, yay!
+The definitions of stability and backwards compatibility guarantees are located in the [corresponding document](docs/compatibility.md).
+We now also have a GitHub Pages site with [full API reference](https://kotlin.github.io/kotlinx.serialization/).
+
+Compared to RC2, no new features apart from #947 were added and all previously deprecated declarations and migrations were deleted. 
+If you are using RC/RC2 along with deprecated declarations, please, migrate before updating to 1.0.0.
+In case you are using pre-1.0 versions (e.g. 0.20.0), please refer to our [migration guide](docs/migration.md).
+  
+### Bugfixes and improvements
+
+  * Support nullable types at top-level for JsonElement decoding (#1117)
+  * Add CBOR ignoreUnknownKeys option (#947) (thanks to [Travis Wyatt](https://github.com/twyatt))
+  * Fix incorrect documentation of `encodeDefaults` (#1108) (thanks to [Anders Carling](https://github.com/anderscarling))
+  
+1.0.0-RC2 / 2020-09-21
+==================
+
+Second release candidate for 1.0.0 version. This RC contains tweaks and changes based on users feedback after 1.0.0-RC.
+
+### Major changes
+
+* JSON format is now located in different artifact (#994)
+
+In 1.0.0-RC, the `kotlinx-serialization-core` artifact contained core serialization entities as well as `Json` serial format.
+We've decided to change that and to make `core` format-agnostic.
+It would make the life easier for those who use other serial formats and also make possible to write your own implementation of JSON
+or another format without unnecessary dependency on the default one.
+
+In 1.0.0-RC2, `Json` class and related entities are located in `kotlinx-serialization-json` artifact.
+To migrate, simply replace `kotlinx-serialization-core` dependency with `-json`. Core library then will be included automatically
+as the transitive dependency.
+
+For most use-cases, you should use new `kotlinx-serialization-json` artifact. Use `kotlinx-serialization-core` if you are
+writing a library that depends on kotlinx.serialization in a format-agnostic way of provides its own serial format.
+
+* `encodeDefaults` flag is now set to `false` in the default configuration for JSON, CBOR and Protocol Buffers.
+
+The change is motivated by the fact that in most real-life scenarios, this flag is set to `false` anyway,
+because such configuration reduces visual clutter and saves amount of data being serialized. 
+Other libraries, like GSON and Moshi, also have this behavior by default.
+
+This may change how your serialized data looks like, if you have not set value for `encodeDefaults` flag explicitly.
+We anticipate that most users already had done this, so no migration is required.
+In case you need to return to the old behavior, simply add `encodeDefaults = true` to your configuration while creating `Json/Cbor/ProtoBuf` object.
+
+* Move `Json.encodeToDynamic/Json.decodeFromDynamic` functions to json package
+
+Since these functions are no longer exposed via `DynamicObjectParser/Serializer` and they are now `Json` class extensions,
+they should be moved to `kotlinx.serialization.json` package.
+To migrate, simply add `import kotlinx.serialization.json.*` to your files.
+
+
+### Bugfixes and improvements
+
+  * Do not provide default implementation for serializersModule in AbstractEncoder/Decoder (#1089)
+  * Support JsonElement hierarchy in `dynamic` encoding/decoding (#1080)
+  * Support top-level primitives and primitive map keys in `dynamic` encoding/decoding
+  * Change core annotations retention (#1083)
+  * Fix 'Duplicate class ... found in modules' on Gradle != 6.1.1 (#996)
+  * Various documentation clarifications
+  * Support deserialization of top-level nullable types (#1038)
+  * Make most serialization exceptions eligible for coroutines exception recovery (#1054)
+  * Get rid of methods that do not present in Android API<24 (#1013, #1040)
+  * Throw JsonDecodingException on empty string literal at the end of the input (#1011)
+  * Remove new lines in deprecation warnings that caused errors in ObjC interop (#990)
+
 1.0.0-RC / 2020-08-17
 ==================
 
@@ -22,7 +91,7 @@ To migrate from the previous versions of the library, please refer to the [migra
 
 * Core API changes
     * `stringify` and `parse` are renamed to `encodeToString` and `decodeFromString`
-    * `parseJson` and `fromJson` are renamed to `parseJsonElement` and `decodeFromJsonElement`
+    * `parseJson` and `fromJson` are renamed to `parseToJsonElement` and `decodeFromJsonElement`
     * Reified versions of methods are extracted to extensions
 
 * `Json` constructor is replaced with `Json {}` builder function, `JsonConfiguration` is deprecated in favor

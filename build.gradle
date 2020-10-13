@@ -45,6 +45,8 @@ buildscript {
 
     repositories {
         mavenLocal()
+        // Future replacement for kotlin-dev, with cache redirector
+        maven { url "https://cache-redirector.jetbrains.com/maven.pkg.jetbrains.space/kotlin/p/kotlin/dev" }
         maven {
             url "https://kotlin.bintray.com/kotlin-dev"
             credentials {
@@ -55,6 +57,7 @@ buildscript {
         maven { url 'https://kotlin.bintray.com/kotlin-eap' }
         maven { url 'https://kotlin.bintray.com/kotlinx' }
         maven { url "https://dl.bintray.com/jetbrains/kotlin-native-dependencies" }
+        maven { url 'https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev' }
         jcenter()
         gradlePluginPortal()
     }
@@ -83,7 +86,7 @@ buildscript {
     }
 }
 
-// To make it visible for compilerVersion.gradle
+// To make it visible for compiler-version.gradle
 ext.compilerVersion = org.jetbrains.kotlin.config.KotlinCompilerVersion.VERSION
 apply plugin: 'binary-compatibility-validator'
 
@@ -96,6 +99,7 @@ apply plugin: 'kotlinx-knit'
 
 knit {
     siteRoot = "https://kotlin.github.io/kotlinx.serialization"
+    moduleDocs = "build/dokka/htmlMultiModule"
 }
 
 // Build API docs for all modules with dokka before running Knit
@@ -134,6 +138,8 @@ allprojects {
         mavenLocal()
         jcenter()
         maven { url "https://dl.bintray.com/kotlin/kotlinx" }
+        // Future replacement for kotlin-dev, with cache redirector
+        maven { url "https://cache-redirector.jetbrains.com/maven.pkg.jetbrains.space/kotlin/p/kotlin/dev" }
         maven {
             url "https://kotlin.bintray.com/kotlin-dev"
             credentials {
@@ -141,6 +147,7 @@ allprojects {
                 password = project.hasProperty('bintrayApiKey') ? project.property('bintrayApiKey') : System.getenv('BINTRAY_API_KEY') ?: ""
             }
         }
+        maven { url 'https://maven.pkg.jetbrains.space/kotlin/p/dokka/dev' }
         maven { url "https://dl.bintray.com/kotlin/kotlin-eap" }
     }
 }
@@ -162,5 +169,5 @@ subprojects {
 
 }
 
-apply from: rootProject.file('gradle/compilerVersion.gradle')
+apply from: rootProject.file('gradle/compiler-version.gradle')
 apply from: rootProject.file("gradle/dokka.gradle")

@@ -41,24 +41,6 @@ public sealed class Hocon(
         private val NAMING_CONVENTION_REGEX by lazy { "[A-Z]".toRegex() }
     }
 
-    // Implementation below
-
-    @Deprecated(
-        "This method was renamed to decodeFromConfig during serialization 1.0 API stabilization",
-        level = DeprecationLevel.ERROR,
-        replaceWith = ReplaceWith("decodeFromConfig<T>(conf)")
-    )
-    public inline fun <reified T : Any> parse(conf: Config): T =
-        decodeFromConfig(serializersModule.serializer(), conf)
-
-    @Deprecated(
-        "This method was renamed to decodeFromConfig during serialization 1.0 API stabilization",
-        level = DeprecationLevel.ERROR,
-        replaceWith = ReplaceWith("decodeFromConfig(deserializer, conf)")
-    )
-    public fun <T> parse(conf: Config, deserializer: DeserializationStrategy<T>): T =
-        decodeFromConfig(deserializer, conf)
-
     private abstract inner class ConfigConverter<T> : TaggedDecoder<T>() {
         override val serializersModule: SerializersModule
             get() = this@Hocon.serializersModule
@@ -129,6 +111,12 @@ public sealed class Hocon(
 
         override fun decodeTaggedNotNullMark(tag: String): Boolean {
             return !conf.getIsNull(tag)
+        }
+
+        override fun decodeNotNullMark(): Boolean {
+            // Tag might be null for top-level deserialization
+            val currentTag = currentTagOrNull ?: return !conf.isEmpty
+            return decodeTaggedNotNullMark(currentTag)
         }
 
         override fun beginStructure(descriptor: SerialDescriptor): CompositeDecoder =

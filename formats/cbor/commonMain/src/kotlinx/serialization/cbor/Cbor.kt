@@ -25,18 +25,20 @@ import kotlinx.serialization.modules.*
  * from corresponding Kotlin objects. However, other 3rd-party parsers (e.g. `jackson-dataformat-cbor`) may not accept such maps.
  *
  * @param encodeDefaults specifies whether default values of Kotlin properties are encoded.
+ *                       False by default; meaning that properties with values equal to defaults will be elided.
+ * @param ignoreUnknownKeys specifies if unknown CBOR elements should be ignored (skipped) when decoding.
  */
 @ExperimentalSerializationApi
 public sealed class Cbor(
     internal val encodeDefaults: Boolean,
-    override val serializersModule: SerializersModule,
-    ctorMarker: Nothing? // Marker for the temporary migration
+    internal val ignoreUnknownKeys: Boolean,
+    override val serializersModule: SerializersModule
 ) : BinaryFormat {
 
     /**
      * The default instance of [Cbor]
      */
-    public companion object Default : Cbor(true, EmptySerializersModule, null)
+    public companion object Default : Cbor(false, false, EmptySerializersModule)
 
     override fun <T> encodeToByteArray(serializer: SerializationStrategy<T>, value: T): ByteArray {
         val output = ByteArrayOutput()
@@ -53,8 +55,8 @@ public sealed class Cbor(
 }
 
 @OptIn(ExperimentalSerializationApi::class)
-private class CborImpl(encodeDefaults: Boolean, serializersModule: SerializersModule) :
-    Cbor(encodeDefaults, serializersModule, null)
+private class CborImpl(encodeDefaults: Boolean, ignoreUnknownKeys: Boolean, serializersModule: SerializersModule) :
+    Cbor(encodeDefaults, ignoreUnknownKeys, serializersModule)
 
 /**
  * Creates an instance of [Cbor] configured from the optionally given [Cbor instance][from]
@@ -64,7 +66,7 @@ private class CborImpl(encodeDefaults: Boolean, serializersModule: SerializersMo
 public fun Cbor(from: Cbor = Cbor, builderAction: CborBuilder.() -> Unit): Cbor {
     val builder = CborBuilder(from)
     builder.builderAction()
-    return CborImpl(builder.encodeDefaults, builder.serializersModule)
+    return CborImpl(builder.encodeDefaults, builder.ignoreUnknownKeys, builder.serializersModule)
 }
 
 /**
@@ -79,21 +81,14 @@ public class CborBuilder internal constructor(cbor: Cbor) {
     public var encodeDefaults: Boolean = cbor.encodeDefaults
 
     /**
+     * Specifies whether encounters of unknown properties in the input CBOR
+     * should be ignored instead of throwing [SerializationException].
+     * `false` by default.
+     */
+    public var ignoreUnknownKeys: Boolean = cbor.ignoreUnknownKeys
+
+    /**
      * Module with contextual and polymorphic serializers to be used in the resulting [Cbor] instance.
      */
     public var serializersModule: SerializersModule = cbor.serializersModule
 }
-
-@Deprecated(
-    "Cbor constructor was deprecated in the favour of factory function during serialization 1.0 API stabilization",
-    level = DeprecationLevel.ERROR,
-    replaceWith = ReplaceWith("Cbor { this.encodeDefaults = encodeDefaults; this.serializersModule = serializersModule }")
-)
-public fun Cbor(encodeDefaults: Boolean, serializersModule: SerializersModule): Cbor = Cbor
-
-@Deprecated(
-    "Cbor constructor was deprecated in the favour of factory function during serialization 1.0 API stabilization",
-    level = DeprecationLevel.ERROR,
-    replaceWith = ReplaceWith("Cbor { this.serializersModule = serializersModule }")
-)
-public fun Cbor(serializersModule: SerializersModule): Cbor = Cbor

@@ -33,15 +33,13 @@ apply plugin: 'maven-publish'
 
 kotlin {
     // Switching module kind for JS is required to run tests
-    targets {
-        fromPreset(presets.js, 'js') {
-            nodejs {}
-            configure([compilations.main, compilations.test]) {
-                tasks.getByName(compileKotlinTaskName).kotlinOptions {
-                    sourceMap = true
-                    moduleKind = "umd"
-                    metaInfo = true
-                }
+    js {
+        nodejs {}
+        configure([compilations.main, compilations.test]) {
+            kotlinOptions {
+                sourceMap = true
+                moduleKind = "umd"
+                metaInfo = true
             }
         }
     }
@@ -59,6 +57,7 @@ kotlin {
             dependencies {
                 implementation kotlin('stdlib-common')
                 implementation "org.jetbrains.kotlinx:kotlinx-serialization-core:$serialization_version"
+                implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:$serialization_version"
                 implementation "org.jetbrains.kotlinx:kotlinx-serialization-protobuf:$serialization_version"
                 implementation "org.jetbrains.kotlinx:kotlinx-serialization-cbor:$serialization_version"
             }

@@ -11,6 +11,7 @@ stable, these are currently experimental features of Kotlin serialization.
 <!--- TOC -->
 
 * [CBOR (experimental)](#cbor-experimental)
+  * [Ignoring unknown keys](#ignoring-unknown-keys)
   * [Byte arrays and CBOR data types](#byte-arrays-and-cbor-data-types)
 * [ProtoBuf (experimental)](#protobuf-experimental)
   * [Field numbers](#field-numbers)
@@ -94,6 +95,54 @@ BF                                      # map(*)
 > (see the [Allowing structured map keys](json.md#allowing-structured-map-keys) section for JSON workarounds),
 > and Kotlin maps are serialized as CBOR maps, but some parsers (like `jackson-dataformat-cbor`) don't support this.
 
+### Ignoring unknown keys
+
+CBOR format is often used to communicate with [IoT] devices where new properties could be added as a part of a device's
+API evolution. By default, unknown keys encountered during deserialization produce an error.
+This behavior can be configured with the [ignoreUnknownKeys][CborBuilder.ignoreUnknownKeys] property.
+
+<!--- INCLUDE
+import kotlinx.serialization.*
+import kotlinx.serialization.cbor.*
+-->
+
+```kotlin
+val format = Cbor { ignoreUnknownKeys = true }
+
+@Serializable
+data class Project(val name: String)
+
+fun main() {
+    val data = format.decodeFromHexString<Project>(
+        "bf646e616d65756b6f746c696e782e73657269616c697a6174696f6e686c616e6775616765664b6f746c696eff"
+    )
+    println(data)
+}
+```
+
+> You can get the full code [here](../guide/example/example-formats-02.kt).
+
+It decodes the object, despite the fact that `Project` is missing the `language` property.
+
+```text
+Project(name=kotlinx.serialization)
+```
+
+<!--- TEST -->
+
+In [CBOR hex notation](http://cbor.me/), the input is equivalent to the following:
+```
+BF                                      # map(*)
+   64                                   # text(4)
+      6E616D65                          # "name"
+   75                                   # text(21)
+      6B6F746C696E782E73657269616C697A6174696F6E # "kotlinx.serialization"
+   68                                   # text(8)
+      6C616E6775616765                  # "language"
+   66                                   # text(6)
+      4B6F746C696E                      # "Kotlin"
+   FF                                   # primitive(*)
+```
 
 ### Byte arrays and CBOR data types
 
@@ -138,7 +187,7 @@ fun main() {
 }
 ```
 
-> You can get the full code [here](../guide/example/example-formats-02.kt).    
+> You can get the full code [here](../guide/example/example-formats-03.kt).    
 
 As we see, the CBOR byte that precedes the data is different for different type of encoding.
 
@@ -203,7 +252,7 @@ fun main() {
 }
 ```                                  
 
-> You can get the full code [here](../guide/example/example-formats-03.kt).     
+> You can get the full code [here](../guide/example/example-formats-04.kt).
 
 ```text 
 {0A}{15}kotlinx.serialization{12}{06}Kotlin
@@ -253,7 +302,7 @@ fun main() {
 }
 ```                                  
 
-> You can get the full code [here](../guide/example/example-formats-04.kt).     
+> You can get the full code [here](../guide/example/example-formats-05.kt).
 
 We see in the output that the number for the first property `name` did not change (as it is numbered from one by default),
 but it did change for the `language` property. 
@@ -304,7 +353,7 @@ fun main() {
 }
 ```                   
 
-> You can get the full code [here](../guide/example/example-formats-05.kt).           
+> You can get the full code [here](../guide/example/example-formats-06.kt).
 
 * The [default][ProtoIntegerType.DEFAULT] is a varint encoding (`intXX`) that is optimized for 
   small non-negative numbers. The value of `1` is encoded in one byte `01`. 
@@ -361,7 +410,7 @@ fun main() {
 }
 ```                   
 
-> You can get the full code [here](../guide/example/example-formats-06.kt).    
+> You can get the full code [here](../guide/example/example-formats-07.kt).
 
 ```text 
 {08}{01}{08}{02}{08}{03}
@@ -407,7 +456,7 @@ fun main() {
 }
 ```      
 
-> You can get the full code [here](../guide/example/example-formats-07.kt).
+> You can get the full code [here](../guide/example/example-formats-08.kt).
 
 The resulting map has dot-separated keys representing keys of the nested objects.
 
@@ -438,11 +487,14 @@ overriding `encodeValue` in [AbstractEncoder].
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 -->
 
 ```kotlin
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -484,7 +536,7 @@ fun main() {
 }
 ```                                    
 
-> You can get the full code [here](../guide/example/example-formats-08.kt).
+> You can get the full code [here](../guide/example/example-formats-09.kt).
 
 As a result, we got all the primitives values in our object graph visited and put into a list
 in a _serial_ order.
@@ -504,9 +556,12 @@ in a _serial_ order.
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -536,6 +591,8 @@ A decoder needs to implements more substance.
 ```kotlin
 class ListDecoder(val list: ArrayDeque<Any>) : AbstractDecoder() {
     private var elementIndex = 0
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun decodeValue(): Any = list.removeFirst()
     
@@ -581,7 +638,7 @@ fun main() {
 }
 ```
 
-> You can get the full code [here](../guide/example/example-formats-09.kt).
+> You can get the full code [here](../guide/example/example-formats-10.kt).
 
 Now can convert a list of primitives back to an object tree.
 
@@ -607,9 +664,12 @@ its support by returning `true` from the [CompositeDecoder.decodeSequentially] f
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -628,6 +688,8 @@ inline fun <reified T> encodeToList(value: T) = encodeToList(serializer(), value
 ```kotlin
 class ListDecoder(val list: ArrayDeque<Any>) : AbstractDecoder() {
     private var elementIndex = 0
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun decodeValue(): Any = list.removeFirst()
     
@@ -667,7 +729,7 @@ fun main() {
 }
 -->
 
-> You can get the full code [here](../guide/example/example-formats-10.kt).
+> You can get the full code [here](../guide/example/example-formats-11.kt).
 
 <!--- TEST 
 [kotlinx.serialization, kotlin, 9000]
@@ -687,11 +749,14 @@ Our encoder implementation does not keep any state, so it just returns `this` fr
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 -->
 
 ```kotlin
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -723,6 +788,8 @@ in addition to the previous code.
 ```kotlin
 class ListDecoder(val list: ArrayDeque<Any>, var elementsCount: Int = 0) : AbstractDecoder() {
     private var elementIndex = 0
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun decodeValue(): Any = list.removeFirst()
 
@@ -769,7 +836,7 @@ fun main() {
 }
 ```
 
-> You can get the full code [here](../guide/example/example-formats-11.kt).
+> You can get the full code [here](../guide/example/example-formats-12.kt).
 
 We see the size of the list added to the result, letting decoder know where to stop. 
 
@@ -789,9 +856,12 @@ of "null indicator", telling whether the upcoming value is null or is not null.
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -823,6 +893,8 @@ inline fun <reified T> encodeToList(value: T) = encodeToList(serializer(), value
 
 class ListDecoder(val list: ArrayDeque<Any>, var elementsCount: Int = 0) : AbstractDecoder() {
     private var elementIndex = 0
+    
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun decodeValue(): Any = list.removeFirst()
 
@@ -876,7 +948,7 @@ fun main() {
 
 ```
 
-> You can get the full code [here](../guide/example/example-formats-12.kt).
+> You can get the full code [here](../guide/example/example-formats-13.kt).
 
 In the output we see how not-null`!!` and `NULL` marks are used.
 
@@ -898,11 +970,13 @@ import kotlinx.serialization.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 import java.io.*
 -->
 
 ```kotlin            
 class DataOutputEncoder(val output: DataOutput) : AbstractEncoder() {
+    override val serializersModule: SerializersModule = EmptySerializersModule
     override fun encodeBoolean(value: Boolean) = output.writeByte(if (value) 1 else 0)
     override fun encodeByte(value: Byte) = output.writeByte(value.toInt())
     override fun encodeShort(value: Short) = output.writeShort(value.toInt())
@@ -939,7 +1013,7 @@ The decoder implementation mirrors encoder's implementation overriding all the p
 ```kotlin 
 class DataInputDecoder(val input: DataInput, var elementsCount: Int = 0) : AbstractDecoder() {
     private var elementIndex = 0
-
+    override val serializersModule: SerializersModule = EmptySerializersModule
     override fun decodeBoolean(): Boolean = input.readByte().toInt() != 0
     override fun decodeByte(): Byte = input.readByte()
     override fun decodeShort(): Short = input.readShort()
@@ -1002,7 +1076,7 @@ fun main() {
 }
 ```
               
-> You can get the full code [here](../guide/example/example-formats-13.kt).
+> You can get the full code [here](../guide/example/example-formats-14.kt).
 
 As we can see, the result is the dense binary format that only contains the data that is being serialized. 
 It can be easily tweaked for any kind of domain-specific compact encoding.
@@ -1035,6 +1109,7 @@ being serialized, so we fetch the builtin [KSerializer] instance for `ByteArray`
 import kotlinx.serialization.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.modules.*
 import kotlinx.serialization.encoding.*
 import java.io.*
 -->
@@ -1053,6 +1128,7 @@ a size of up to 254 bytes.
 
 <!--- INCLUDE
 class DataOutputEncoder(val output: DataOutput) : AbstractEncoder() {
+    override val serializersModule: SerializersModule = EmptySerializersModule
     override fun encodeBoolean(value: Boolean) = output.writeByte(if (value) 1 else 0)
     override fun encodeByte(value: Byte) = output.writeByte(value.toInt())
     override fun encodeShort(value: Short) = output.writeShort(value.toInt())
@@ -1108,7 +1184,7 @@ inline fun <reified T> encodeTo(output: DataOutput, value: T) = encodeTo(output,
 
 class DataInputDecoder(val input: DataInput, var elementsCount: Int = 0) : AbstractDecoder() {
     private var elementIndex = 0
-
+    override val serializersModule: SerializersModule = EmptySerializersModule
     override fun decodeBoolean(): Boolean = input.readByte().toInt() != 0
     override fun decodeByte(): Byte = input.readByte()
     override fun decodeShort(): Short = input.readShort()
@@ -1194,7 +1270,7 @@ fun main() {
 }
 ```
               
-> You can get the full code [here](../guide/example/example-formats-14.kt).
+> You can get the full code [here](../guide/example/example-formats-15.kt).
 
 As we can see, our custom byte array format is being used, with compact encoding of its size in one byte. 
 
@@ -1212,50 +1288,54 @@ This chapter concludes [Kotlin Serialization Guide](serialization-guide.md).
 
 <!-- references -->
 [RFC 7049]: https://tools.ietf.org/html/rfc7049
+[IoT]: https://en.wikipedia.org/wiki/Internet_of_things
 [RFC 7049 Major Types]: https://tools.ietf.org/html/rfc7049#section-2.1
 
 <!-- Java references -->
 [java.io.DataOutput]: https://docs.oracle.com/javase/8/docs/api/java/io/DataOutput.html
 
-<!--- MODULE /kotlinx-serialization -->
-<!--- INDEX kotlinx.serialization -->
-[serializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/serializer.html
-[KSerializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-k-serializer/index.html
-<!--- INDEX kotlinx.serialization.builtins -->
-[kotlinx.serialization.builtins.ByteArraySerializer()]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.builtins/-byte-array-serializer.html
-<!--- INDEX kotlinx.serialization.encoding -->
-[Encoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-encoder/index.html
-[Decoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-decoder/index.html
-[AbstractEncoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-abstract-encoder/index.html
-[AbstractDecoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-abstract-decoder/index.html
-[AbstractEncoder.encodeValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-abstract-encoder/encode-value.html
-[AbstractDecoder.decodeValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-abstract-decoder/decode-value.html
-[CompositeDecoder.decodeElementIndex]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-composite-decoder/decode-element-index.html
-[Decoder.beginStructure]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-decoder/begin-structure.html
-[CompositeDecoder.decodeSequentially]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-composite-decoder/decode-sequentially.html
-[Encoder.beginCollection]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-encoder/begin-collection.html
-[CompositeDecoder.decodeCollectionSize]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-composite-decoder/decode-collection-size.html
-[Encoder.encodeNull]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-encoder/encode-null.html
-[Encoder.encodeNotNullMark]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-encoder/encode-not-null-mark.html
-[Decoder.decodeNotNullMark]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-decoder/decode-not-null-mark.html
-[Encoder.encodeSerializableValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-encoder/encode-serializable-value.html
-[Decoder.decodeSerializableValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.encoding/-decoder/decode-serializable-value.html
-<!--- INDEX kotlinx.serialization.cbor -->
-[Cbor]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.cbor/-cbor/index.html
-[Cbor.encodeToByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.cbor/-cbor/encode-to-byte-array.html
-[Cbor.decodeFromByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.cbor/-cbor/decode-from-byte-array.html
-[ByteString]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.cbor/-byte-string/index.html
-<!--- INDEX kotlinx.serialization.protobuf -->
-[ProtoBuf]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-buf/index.html
-[ProtoBuf.encodeToByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-buf/encode-to-byte-array.html
-[ProtoBuf.decodeFromByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-buf/decode-from-byte-array.html
-[ProtoNumber]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-number/index.html
-[ProtoType]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-type/index.html
-[ProtoIntegerType]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-integer-type/index.html
-[ProtoIntegerType.DEFAULT]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-integer-type/-d-e-f-a-u-l-t.html
-[ProtoIntegerType.SIGNED]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-integer-type/-s-i-g-n-e-d.html
-[ProtoIntegerType.FIXED]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.protobuf/-proto-integer-type/-f-i-x-e-d.html
-<!--- INDEX kotlinx.serialization.properties -->
-[kotlinx.serialization.properties.Properties]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.properties/-properties/index.html
+<!--- MODULE /kotlinx-serialization-core -->
+<!--- INDEX kotlinx-serialization-core/kotlinx.serialization -->
+[serializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/../../../kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/index.html#kotlinx.serialization%2F%2Fserializer%2F%23%2FPointingToDeclaration%2F
+[KSerializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-k-serializer/index.html
+<!--- INDEX kotlinx-serialization-core/kotlinx.serialization.builtins -->
+[kotlinx.serialization.builtins.ByteArraySerializer()]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.builtins/-byte-array-serializer.html
+<!--- INDEX kotlinx-serialization-core/kotlinx.serialization.encoding -->
+[Encoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-encoder/index.html
+[Decoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-decoder/index.html
+[AbstractEncoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-abstract-encoder/index.html
+[AbstractDecoder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-abstract-decoder/index.html
+[AbstractEncoder.encodeValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-abstract-encoder/encode-value.html
+[AbstractDecoder.decodeValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-abstract-decoder/decode-value.html
+[CompositeDecoder.decodeElementIndex]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-composite-decoder/decode-element-index.html
+[Decoder.beginStructure]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-decoder/begin-structure.html
+[CompositeDecoder.decodeSequentially]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-composite-decoder/decode-sequentially.html
+[Encoder.beginCollection]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-encoder/begin-collection.html
+[CompositeDecoder.decodeCollectionSize]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-composite-decoder/decode-collection-size.html
+[Encoder.encodeNull]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-encoder/encode-null.html
+[Encoder.encodeNotNullMark]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-encoder/encode-not-null-mark.html
+[Decoder.decodeNotNullMark]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-decoder/decode-not-null-mark.html
+[Encoder.encodeSerializableValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-encoder/encode-serializable-value.html
+[Decoder.decodeSerializableValue]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.encoding/-decoder/decode-serializable-value.html
+<!--- MODULE /kotlinx-serialization-properties -->
+<!--- INDEX kotlinx-serialization-properties/kotlinx.serialization.properties -->
+[kotlinx.serialization.properties.Properties]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-properties/kotlinx-serialization-properties/kotlinx.serialization.properties/-properties/index.html
+<!--- MODULE /kotlinx-serialization-protobuf -->
+<!--- INDEX kotlinx-serialization-protobuf/kotlinx.serialization.protobuf -->
+[ProtoBuf]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-buf/index.html
+[ProtoBuf.encodeToByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-buf/encode-to-byte-array.html
+[ProtoBuf.decodeFromByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-buf/decode-from-byte-array.html
+[ProtoNumber]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-number/index.html
+[ProtoType]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-type/index.html
+[ProtoIntegerType]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-integer-type/index.html
+[ProtoIntegerType.DEFAULT]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-integer-type/-d-e-f-a-u-l-t/index.html
+[ProtoIntegerType.SIGNED]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-integer-type/-s-i-g-n-e-d/index.html
+[ProtoIntegerType.FIXED]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-protobuf/kotlinx-serialization-protobuf/kotlinx.serialization.protobuf/-proto-integer-type/-f-i-x-e-d/index.html
+<!--- MODULE /kotlinx-serialization-cbor -->
+<!--- INDEX kotlinx-serialization-cbor/kotlinx.serialization.cbor -->
+[Cbor]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-cbor/kotlinx-serialization-cbor/kotlinx.serialization.cbor/-cbor/index.html
+[Cbor.encodeToByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-cbor/kotlinx-serialization-cbor/kotlinx.serialization.cbor/-cbor/encode-to-byte-array.html
+[Cbor.decodeFromByteArray]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-cbor/kotlinx-serialization-cbor/kotlinx.serialization.cbor/-cbor/decode-from-byte-array.html
+[CborBuilder.ignoreUnknownKeys]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-cbor/kotlinx-serialization-cbor/kotlinx.serialization.cbor/-cbor-builder/index.html#kotlinx.serialization.cbor%2FCborBuilder%2FignoreUnknownKeys%2F%23%2FPointingToDeclaration%2F
+[ByteString]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-cbor/kotlinx-serialization-cbor/kotlinx.serialization.cbor/-byte-string/index.html
 <!--- END -->
-   

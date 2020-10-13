@@ -209,8 +209,9 @@ sealed class Project {
 class OwnedProject(override val name: String, val owner: String) : Project()
 
 fun main() {
+    val json = Json { encodeDefaults = true } // "status" will be skipped otherwise
     val data: Project = OwnedProject("kotlinx.coroutines", "kotlin")
-    println(Json.encodeToString(data))
+    println(json.encodeToString(data))
 }  
 ```
 
@@ -273,7 +274,7 @@ must be explicitly registered at runtime.
 Let us start with the code from the [Designing serializable hierarchy](#designing-serializable-hierarchy) section.
 To make it work with serialization without making it `sealed`, we have to define a [SerializersModule] using the 
 [SerializersModule {}][SerializersModule()] builder function. In the module the base class is specified 
-in the [polymorphic] builder and each subclass is registered with the [subclass] function. Now, 
+in the [polymorphic][_polymorphic] builder and each subclass is registered with the [subclass] function. Now, 
 a custom JSON configuration can be instantiated with this module and used for serialization.
 
 > Details on custom JSON configurations can be found in 
@@ -317,6 +318,9 @@ the [Sealed classes](#sealed-classes) section, but here subclasses can be spread
 ```                  
 
 <!--- TEST -->
+>Please note that this example works only on JVM because of `serializer` function restrictions.
+>For JS and Native, explicit serializer should be used: `format.encodeToString(PolymorphicSerializer(Project::class), data)`
+>You can keep track of this issue [here](https://github.com/Kotlin/kotlinx.serialization/issues/1077).
 
 ### Serializing interfaces 
 
@@ -852,28 +856,34 @@ Notice, how `BasicProject` had also captured the specified type key in its `type
 
 <!--- TEST -->
 
+We used a plugin-generated serializer as a default serializer, implying that 
+the structure of the "unknown" data is known in advance. In a real-world API it's rarely the case.
+For that purpose a custom, less-structured serializer is needed. You will see the example of such serializer in the future section
+on [Maintaining custom JSON attributes](json.md#maintaining-custom-json-attributes).
+
 ---
 
 The next chapter covers [JSON features](json.md).
 
-<!--- MODULE /kotlinx-serialization -->
-<!--- INDEX kotlinx.serialization -->
-[SerialName]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-serial-name/index.html
-[PolymorphicSerializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-polymorphic-serializer/index.html
-[Serializable]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-serializable/index.html
-[Polymorphic]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-polymorphic/index.html
-[DeserializationStrategy]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization/-deserialization-strategy/index.html
-<!--- INDEX kotlinx.serialization.json -->
-[Json.encodeToString]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.json/-json/encode-to-string.html
-[Json]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.json/-json/index.html
-<!--- INDEX kotlinx.serialization.modules -->
-[SerializersModule]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/-serializers-module/index.html
-[SerializersModule()]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/-serializers-module.html
-[polymorphic]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/polymorphic.html
-[subclass]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/subclass.html
-[plus]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/plus.html
-[SerializersModuleBuilder.include]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/-serializers-module-builder/include.html
-[PolymorphicModuleBuilder.default]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/-polymorphic-module-builder/default.html
-[PolymorphicModuleBuilder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization/kotlinx.serialization.modules/-polymorphic-module-builder/index.html
+<!--- MODULE /kotlinx-serialization-core -->
+<!--- INDEX kotlinx-serialization-core/kotlinx.serialization -->
+[SerialName]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-serial-name/index.html
+[PolymorphicSerializer]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-polymorphic-serializer/index.html
+[Serializable]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-serializable/index.html
+[Polymorphic]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-polymorphic/index.html
+[DeserializationStrategy]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization/-deserialization-strategy/index.html
+<!--- INDEX kotlinx-serialization-core/kotlinx.serialization.modules -->
+[SerializersModule]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/-serializers-module/index.html
+[SerializersModule()]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/-serializers-module.html
+[_polymorphic]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/polymorphic.html
+[subclass]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/subclass.html
+[plus]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/plus.html
+[SerializersModuleBuilder.include]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/-serializers-module-builder/include.html
+[PolymorphicModuleBuilder.default]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/-polymorphic-module-builder/default.html
+[PolymorphicModuleBuilder]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-core/kotlinx-serialization-core/kotlinx.serialization.modules/-polymorphic-module-builder/index.html
+<!--- MODULE /kotlinx-serialization-json -->
+<!--- INDEX kotlinx-serialization-json/kotlinx.serialization.json -->
+[Json.encodeToString]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-json/kotlinx-serialization-json/kotlinx.serialization.json/-json/encode-to-string.html
+[Json]: https://kotlin.github.io/kotlinx.serialization/kotlinx-serialization-json/kotlinx-serialization-json/kotlinx.serialization.json/-json/index.html
 <!--- END -->
 

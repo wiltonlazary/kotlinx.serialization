@@ -36,8 +36,11 @@ To release new `<version>` of `kotlinx.serialization`:
 4. In [Bintray](https://bintray.com/kotlin/kotlinx/kotlinx.serialization.runtime) admin interface:
    * Publish artifacts of the new version.
    * Wait until newly published version becomes the most recent.
+   
+5. Update documentation website:<br>
+    `./update_docs.sh <version> push`
 
-6. Update Kotlin and library versions  in [examples](examples/gradle.properties)
+6. Create a new release in [Github releases](https://github.com/Kotlin/kotlinx.serialization/releases). Use created git tag for title and changelog message for body.
 
 1. Switch back to master branch and update it:<br>
    ```
@@ -46,4 +49,4 @@ To release new `<version>` of `kotlinx.serialization`:
    git push origin master
    ```
 
-5. Announce new release in [Slack](https://kotlinlang.slack.com)
+5. Announce new release in [Slack](https://kotlinlang.slack.com).

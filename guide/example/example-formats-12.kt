@@ -4,9 +4,12 @@ package example.exampleFormats12
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
+import kotlinx.serialization.modules.*
 
 class ListEncoder : AbstractEncoder() {
     val list = mutableListOf<Any>()
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun encodeValue(value: Any) {
         list.add(value)
@@ -16,9 +19,6 @@ class ListEncoder : AbstractEncoder() {
         encodeInt(collectionSize)
         return this
     }                                                
-
-    override fun encodeNull() = encodeValue("NULL")
-    override fun encodeNotNullMark() = encodeValue("!!")
 }
 
 fun <T> encodeToList(serializer: SerializationStrategy<T>, value: T): List<Any> {
@@ -31,6 +31,8 @@ inline fun <reified T> encodeToList(value: T) = encodeToList(serializer(), value
 
 class ListDecoder(val list: ArrayDeque<Any>, var elementsCount: Int = 0) : AbstractDecoder() {
     private var elementIndex = 0
+
+    override val serializersModule: SerializersModule = EmptySerializersModule
 
     override fun decodeValue(): Any = list.removeFirst()
 
@@ -46,8 +48,6 @@ class ListDecoder(val list: ArrayDeque<Any>, var elementsCount: Int = 0) : Abstr
 
     override fun decodeCollectionSize(descriptor: SerialDescriptor): Int =
         decodeInt().also { elementsCount = it }
-
-    override fun decodeNotNullMark(): Boolean = decodeString() != "NULL"
 }
 
 fun <T> decodeFromList(list: List<Any>, deserializer: DeserializationStrategy<T>): T {
@@ -58,16 +58,15 @@ fun <T> decodeFromList(list: List<Any>, deserializer: DeserializationStrategy<T>
 inline fun <reified T> decodeFromList(list: List<Any>): T = decodeFromList(list, serializer())
 
 @Serializable
-data class Project(val name: String, val owner: User?, val votes: Int?)
+data class Project(val name: String, val owners: List<User>, val votes: Int)
 
 @Serializable
 data class User(val name: String)
 
 fun main() {
-    val data = Project("kotlinx.serialization",  User("kotlin") , null)
+    val data = Project("kotlinx.serialization",  listOf(User("kotlin"), User("jetbrains")), 9000)
     val list = encodeToList(data)
     println(list)
     val obj = decodeFromList<Project>(list)
     println(obj)
 }
-
