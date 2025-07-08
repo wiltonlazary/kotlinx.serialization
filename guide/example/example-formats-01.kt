@@ -5,13 +5,14 @@ import kotlinx.serialization.*
 import kotlinx.serialization.cbor.*
 
 fun ByteArray.toAsciiHexString() = joinToString("") {
-    if (it in 32..127) it.toChar().toString() else
-        "{${it.toUByte().toString(16).padStart(2, '0').toUpperCase()}}"
+    if (it in 32..127) it.toInt().toChar().toString() else
+        "{${it.toUByte().toString(16).padStart(2, '0').uppercase()}}"
 }
 
 @Serializable
 data class Project(val name: String, val language: String)
 
+@OptIn(ExperimentalSerializationApi::class)
 fun main() {
     val data = Project("kotlinx.serialization", "Kotlin") 
     val bytes = Cbor.encodeToByteArray(data)   

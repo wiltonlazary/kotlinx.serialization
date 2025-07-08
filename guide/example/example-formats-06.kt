@@ -5,10 +5,11 @@ import kotlinx.serialization.*
 import kotlinx.serialization.protobuf.*
 
 fun ByteArray.toAsciiHexString() = joinToString("") {
-    if (it in 32..127) it.toChar().toString() else
-        "{${it.toUByte().toString(16).padStart(2, '0').toUpperCase()}}"
+    if (it in 32..127) it.toInt().toChar().toString() else
+        "{${it.toUByte().toString(16).padStart(2, '0').uppercase()}}"
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 class Data(
     @ProtoType(ProtoIntegerType.DEFAULT)
@@ -19,6 +20,7 @@ class Data(
     val c: Int
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 fun main() {
     val data = Data(1, -2, 3) 
     println(ProtoBuf.encodeToByteArray(data).toAsciiHexString())

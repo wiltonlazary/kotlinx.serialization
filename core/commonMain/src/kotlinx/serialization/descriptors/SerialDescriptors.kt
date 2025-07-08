@@ -1,10 +1,11 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization.descriptors
 
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.internal.*
 import kotlin.reflect.*
@@ -24,30 +25,30 @@ import kotlin.reflect.*
  *     val nullableInt: Int?
  * )
  * // Descriptor for such class:
- * SerialDescriptor("my.package.Data") {
+ * buildClassSerialDescriptor("my.package.Data") {
  *     // intField is deliberately ignored by serializer -- not present in the descriptor as well
  *     element<Long>("_longField") // longField is named as _longField
- *     element("stringField", listDescriptor<String>())
- *     element("nullableInt", descriptor<Int>().nullable)
+ *     element("stringField", listSerialDescriptor<String>()) // or ListSerializer(String.serializer()).descriptor
+ *     element("nullableInt", serialDescriptor<Int>().nullable)
  * }
  * ```
  *
  * Example for generic classes:
  * ```
+ * import kotlinx.serialization.builtins.*
+ *
  * @Serializable(CustomSerializer::class)
  * class BoxedList<T>(val list: List<T>)
  *
  * class CustomSerializer<T>(tSerializer: KSerializer<T>): KSerializer<BoxedList<T>> {
  *   // here we use tSerializer.descriptor because it represents T
- *   override val descriptor = SerialDescriptor("pkg.BoxedList", CLASS, typeParamSerializer.descriptor) {
+ *   override val descriptor = buildClassSerialDescriptor("pkg.BoxedList", tSerializer.descriptor) {
  *     // here we have to wrap it with List first, because property has type List<T>
  *     element("list", ListSerializer(tSerializer).descriptor) // or listSerialDescriptor(tSerializer.descriptor)
  *   }
  * }
  * ```
  */
-@Suppress("FunctionName")
-@OptIn(ExperimentalSerializationApi::class)
 public fun buildClassSerialDescriptor(
     serialName: String,
     vararg typeParameters: SerialDescriptor,
@@ -66,12 +67,12 @@ public fun buildClassSerialDescriptor(
 }
 
 /**
- * Factory to create a trivial primitive descriptors.
+ * Factory to create trivial primitive descriptors. [serialName] must be non-blank and unique.
  * Primitive descriptors should be used when the serialized form of the data has a primitive form, for example:
  * ```
  * object LongAsStringSerializer : KSerializer<Long> {
  *     override val descriptor: SerialDescriptor =
- *         PrimitiveDescriptor("kotlinx.serialization.LongAsStringSerializer", PrimitiveKind.STRING)
+ *         PrimitiveSerialDescriptor("kotlinx.serialization.LongAsStringSerializer", PrimitiveKind.STRING)
  *
  *     override fun serialize(encoder: Encoder, value: Long) {
  *         encoder.encodeString(value.toString())
@@ -83,20 +84,71 @@ public fun buildClassSerialDescriptor(
  * }
  * ```
  */
+@Suppress("FunctionName")
 public fun PrimitiveSerialDescriptor(serialName: String, kind: PrimitiveKind): SerialDescriptor {
     require(serialName.isNotBlank()) { "Blank serial names are prohibited" }
     return PrimitiveDescriptorSafe(serialName, kind)
 }
 
 /**
+ * Factory to create a new descriptor that is identical to [original] except that the name is equal to [serialName].
+ * Usually used when you want to serialize a type as another type, delegating implementation of `serialize` and `deserialize`.
+ *
+ * Example:
+ * ```
+ * @Serializable(CustomSerializer::class)
+ * class CustomType(val a: Int, val b: Int, val c: Int)
+ *
+ * class CustomSerializer: KSerializer<CustomType> {
+ *     override val descriptor = SerialDescriptor("CustomType", IntArraySerializer().descriptor)
+ *
+ *     override fun serialize(encoder: Encoder, value: CustomType) {
+ *         encoder.encodeSerializableValue(IntArraySerializer(), intArrayOf(value.a, value.b, value.c))
+ *     }
+ *
+ *     override fun deserialize(decoder: Decoder): CustomType {
+ *         val array = decoder.decodeSerializableValue(IntArraySerializer())
+ *         return CustomType(array[0], array[1], array[2])
+ *     }
+ * }
+ * ```
+ */
+public fun SerialDescriptor(serialName: String, original: SerialDescriptor): SerialDescriptor {
+    require(serialName.isNotBlank()) { "Blank serial names are prohibited" }
+    require(serialName != original.serialName) { "The name of the wrapped descriptor ($serialName) cannot be the same as the name of the original descriptor (${original.serialName})" }
+    if (original.kind is PrimitiveKind) checkNameIsNotAPrimitive(serialName)
+
+    return WrappedSerialDescriptor(serialName, original)
+}
+
+internal class WrappedSerialDescriptor(override val serialName: String, private val original: SerialDescriptor) :
+    SerialDescriptor by original {
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is WrappedSerialDescriptor) return false
+
+        return serialName == other.serialName && original == other.original
+    }
+
+    override fun hashCode(): Int {
+        var result = serialName.hashCode()
+        result = 31 * result + original.hashCode()
+        return result
+    }
+
+    override fun toString(): String = toStringImpl()
+
+}
+
+/**
  * An unsafe alternative to [buildClassSerialDescriptor] that supports an arbitrary [SerialKind].
  * This function is left public only for migration of pre-release users and is not intended to be used
- * as generally-safe and stable mechanism. Beware that it can produce inconsistent or non spec-compliant instances.
+ * as a generally safe and stable mechanism. Beware that it can produce inconsistent or non-spec-compliant instances.
  *
- * If you end up using this builder, please file an issue with your use-case in kotlinx.serialization
+ * If you end up using this builder, please file an issue with your use-case to the kotlinx.serialization issue tracker.
  */
 @InternalSerializationApi
-@OptIn(ExperimentalSerializationApi::class)
 public fun buildSerialDescriptor(
     serialName: String,
     kind: SerialKind,
@@ -113,13 +165,31 @@ public fun buildSerialDescriptor(
 
 /**
  * Retrieves descriptor of type [T] using reified [serializer] function.
+ *
+ * Example:
+ * ```
+ * serialDescriptor<List<String>>() // Returns kotlin.collections.ArrayList(PrimitiveDescriptor(kotlin.String))
+ * ```
  */
 public inline fun <reified T> serialDescriptor(): SerialDescriptor = serializer<T>().descriptor
 
 /**
- * Retrieves descriptor of type associated with the given [KType][type]
+ * Retrieves descriptor of a type associated with the given [KType][type].
+ *
+ * Example:
+ * ```
+ * val type = typeOf<List<String>>()
+ *
+ * serialDescriptor(type) // Returns kotlin.collections.ArrayList(PrimitiveDescriptor(kotlin.String))
+ * ```
  */
 public fun serialDescriptor(type: KType): SerialDescriptor = serializer(type).descriptor
+
+/* The rest of the functions intentionally left experimental for later stabilization
+ It is unclear whether they should be left as-is,
+ or moved to ClassSerialDescriptorBuilder (because this is the main place for them to be used),
+ or simply deprecated in favor of ListSerializer(Element.serializer()).descriptor
+*/
 
 /**
  * Creates a descriptor for the type `List<T>` where `T` is the type associated with [elementDescriptor].
@@ -185,6 +255,25 @@ public val SerialDescriptor.nullable: SerialDescriptor
     }
 
 /**
+ * Returns non-nullable serial descriptor for the type if this descriptor has been auto-generated (plugin
+ * generated descriptors) or created with `.nullable` extension on a descriptor or serializer.
+ *
+ * Otherwise, returns `this`.
+ *
+ * It may return a nullable descriptor
+ * if `this` descriptor has been created manually as nullable by directly implementing SerialDescriptor interface.
+ *
+ * @see SerialDescriptor.nullable
+ * @see KSerializer.nullable
+ */
+@ExperimentalSerializationApi
+public val SerialDescriptor.nonNullOriginal: SerialDescriptor
+    get() = when (this) {
+        is SerialDescriptorForNullable -> original
+        else -> this
+    }
+
+/**
  * Builder for [SerialDescriptor] for user-defined serializers.
  *
  * Both explicit builder functions and implicit (using reified type-parameters) are present and are equivalent.
@@ -204,6 +293,7 @@ public class ClassSerialDescriptorBuilder internal constructor(
      * in its [KSerializer] type parameter and handle nulls during encoding and decoding.
      */
     @ExperimentalSerializationApi
+    @Deprecated("isNullable inside buildSerialDescriptor is deprecated. Please use SerialDescriptor.nullable extension on a builder result.", level = DeprecationLevel.ERROR)
     public var isNullable: Boolean = false
 
     /**
@@ -242,7 +332,7 @@ public class ClassSerialDescriptorBuilder internal constructor(
         annotations: List<Annotation> = emptyList(),
         isOptional: Boolean = false
     ) {
-        require(uniqueNames.add(elementName)) { "Element with name '$elementName' is already registered" }
+        require(uniqueNames.add(elementName)) { "Element with name '$elementName' is already registered in $serialName" }
         elementNames += elementName
         elementDescriptors += descriptor
         elementAnnotations += annotations
@@ -270,9 +360,10 @@ internal class SerialDescriptorImpl(
     override val elementsCount: Int,
     typeParameters: List<SerialDescriptor>,
     builder: ClassSerialDescriptorBuilder
-) : SerialDescriptor {
+) : SerialDescriptor, CachedNames {
 
-    public override val annotations: List<Annotation> = builder.annotations
+    override val annotations: List<Annotation> = builder.annotations
+    override val serialNames: Set<String> = builder.elementNames.toHashSet()
 
     private val elementNames: Array<String> = builder.elementNames.toTypedArray()
     private val elementDescriptors: Array<SerialDescriptor> = builder.elementDescriptors.compactArray()
@@ -297,10 +388,5 @@ internal class SerialDescriptorImpl(
 
     override fun hashCode(): Int = _hashCode
 
-    override fun toString(): String {
-        return (0 until elementsCount).joinToString(", ", prefix = "$serialName(", postfix = ")") {
-            getElementName(it) + ": " + getElementDescriptor(it).serialName
-        }
-    }
+    override fun toString(): String = toStringImpl()
 }
-

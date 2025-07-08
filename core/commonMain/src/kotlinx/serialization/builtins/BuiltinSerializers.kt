@@ -9,6 +9,10 @@ import kotlinx.serialization.*
 import kotlinx.serialization.internal.*
 import kotlin.reflect.*
 import kotlinx.serialization.descriptors.*
+import kotlin.time.Duration
+import kotlin.time.ExperimentalTime
+import kotlin.time.Instant
+import kotlin.uuid.*
 
 /**
  * Returns a nullable serializer for the given serializer of non-null type.
@@ -33,7 +37,7 @@ public fun <K, V> PairSerializer(
  * Returns built-in serializer for [Map.Entry].
  * Resulting serializer represents entry as a structure with a single key-value pair.
  * E.g. `Pair(1, 2)` and `Map.Entry(1, 2)` will be serialized to JSON as
- * `{"first": 1, "second": 2}` and {"1": 2} respectively.
+ * `{"first": 1, "second": 2}` and `{"1": 2}` respectively.
  */
 public fun <K, V> MapEntrySerializer(
     keySerializer: KSerializer<K>,
@@ -59,7 +63,6 @@ public fun Char.Companion.serializer(): KSerializer<Char> = CharSerializer
  * Returns serializer for [CharArray] with [descriptor][SerialDescriptor] of [StructureKind.LIST] kind.
  * Each element of the array is serialized one by one with [Char.Companion.serializer].
  */
-@Suppress("UNCHECKED_CAST")
 public fun CharArraySerializer(): KSerializer<CharArray> = CharArraySerializer
 
 /**
@@ -74,6 +77,14 @@ public fun Byte.Companion.serializer(): KSerializer<Byte> = ByteSerializer
 public fun ByteArraySerializer(): KSerializer<ByteArray> = ByteArraySerializer
 
 /**
+ * Returns serializer for [UByteArray] with [descriptor][SerialDescriptor] of [StructureKind.LIST] kind.
+ * Each element of the array is serialized one by one with [UByte.Companion.serializer].
+ */
+@ExperimentalSerializationApi
+@ExperimentalUnsignedTypes
+public fun UByteArraySerializer(): KSerializer<UByteArray> = UByteArraySerializer
+
+/**
  * Returns serializer for [Short] with [descriptor][SerialDescriptor] of [PrimitiveKind.SHORT] kind.
  */
 public fun Short.Companion.serializer(): KSerializer<Short> = ShortSerializer
@@ -83,6 +94,14 @@ public fun Short.Companion.serializer(): KSerializer<Short> = ShortSerializer
  * Each element of the array is serialized one by one with [Short.Companion.serializer].
  */
 public fun ShortArraySerializer(): KSerializer<ShortArray> = ShortArraySerializer
+
+/**
+ * Returns serializer for [UShortArray] with [descriptor][SerialDescriptor] of [StructureKind.LIST] kind.
+ * Each element of the array is serialized one by one with [UShort.Companion.serializer].
+ */
+@ExperimentalSerializationApi
+@ExperimentalUnsignedTypes
+public fun UShortArraySerializer(): KSerializer<UShortArray> = UShortArraySerializer
 
 /**
  * Returns serializer for [Int] with [descriptor][SerialDescriptor] of [PrimitiveKind.INT] kind.
@@ -96,6 +115,14 @@ public fun Int.Companion.serializer(): KSerializer<Int> = IntSerializer
 public fun IntArraySerializer(): KSerializer<IntArray> = IntArraySerializer
 
 /**
+ * Returns serializer for [UIntArray] with [descriptor][SerialDescriptor] of [StructureKind.LIST] kind.
+ * Each element of the array is serialized one by one with [UInt.Companion.serializer].
+ */
+@ExperimentalSerializationApi
+@ExperimentalUnsignedTypes
+public fun UIntArraySerializer(): KSerializer<UIntArray> = UIntArraySerializer
+
+/**
  * Returns serializer for [Long] with [descriptor][SerialDescriptor] of [PrimitiveKind.LONG] kind.
  */
 public fun Long.Companion.serializer(): KSerializer<Long> = LongSerializer
@@ -105,6 +132,14 @@ public fun Long.Companion.serializer(): KSerializer<Long> = LongSerializer
  * Each element of the array is serialized one by one with [Long.Companion.serializer].
  */
 public fun LongArraySerializer(): KSerializer<LongArray> = LongArraySerializer
+
+/**
+ * Returns serializer for [ULongArray] with [descriptor][SerialDescriptor] of [StructureKind.LIST] kind.
+ * Each element of the array is serialized one by one with [ULong.Companion.serializer].
+ */
+@ExperimentalSerializationApi
+@ExperimentalUnsignedTypes
+public fun ULongArraySerializer(): KSerializer<ULongArray> = ULongArraySerializer
 
 /**
  * Returns serializer for [Float] with [descriptor][SerialDescriptor] of [PrimitiveKind.FLOAT] kind.
@@ -183,10 +218,78 @@ public fun <T> SetSerializer(elementSerializer: KSerializer<T>): KSerializer<Set
 
 /**
  * Creates a serializer for [`Map<K, V>`][Map] for the given serializers for
- * its ket type [K] and value type [V].
+ * its key type [K] and value type [V].
  */
 public fun <K, V> MapSerializer(
     keySerializer: KSerializer<K>,
     valueSerializer: KSerializer<V>
 ): KSerializer<Map<K, V>> = LinkedHashMapSerializer(keySerializer, valueSerializer)
 
+/**
+ * Returns serializer for [UInt].
+ */
+public fun UInt.Companion.serializer(): KSerializer<UInt> = UIntSerializer
+
+/**
+ * Returns serializer for [ULong].
+ */
+public fun ULong.Companion.serializer(): KSerializer<ULong> = ULongSerializer
+
+/**
+ * Returns serializer for [UByte].
+ */
+public fun UByte.Companion.serializer(): KSerializer<UByte> = UByteSerializer
+
+/**
+ * Returns serializer for [UShort].
+ */
+public fun UShort.Companion.serializer(): KSerializer<UShort> = UShortSerializer
+
+/**
+ * Returns serializer for [Duration].
+ * It is serialized as a string that represents a duration in the format used by [Duration.toIsoString],
+ * that is, the ISO-8601-2 format.
+ *
+ * For deserialization, [Duration.parseIsoString] is used.
+ *
+ * @see Duration.toIsoString
+ * @see Duration.parseIsoString
+ */
+public fun Duration.Companion.serializer(): KSerializer<Duration> = DurationSerializer
+
+/**
+ * Returns serializer for [Instant].
+ * It is serialized as a string that represents an instant in the format used by [Instant.toString]
+ * and described in ISO-8601-1:2019, 5.4.2.1b).
+ *
+ * Deserialization is case-insensitive.
+ * More details can be found in the documentation of [Instant.toString] and [Instant.parse] functions.
+ *
+ * @see Instant.toString
+ * @see Instant.parse
+ */
+@ExperimentalTime
+public fun Instant.Companion.serializer(): KSerializer<Instant> = InstantSerializer
+
+/**
+ * Returns serializer for [Uuid].
+ * Serializer operates with a standard UUID string representation, also known as "hex-and-dash" format —
+ * [RFC 9562 section 4](https://www.rfc-editor.org/rfc/rfc9562.html#section-4).
+ *
+ * Serialization always produces lowercase string, deserialization is case-insensitive.
+ * More details can be found in the documentation of [Uuid.toString] and [Uuid.parse] functions.
+ *
+ * @see Uuid.toString
+ * @see Uuid.parse
+ */
+@ExperimentalUuidApi
+public fun Uuid.Companion.serializer(): KSerializer<Uuid> = UuidSerializer
+
+/**
+ * Returns serializer for [Nothing].
+ * Throws an exception when trying to encode or decode.
+ *
+ * It is used as a dummy in case it is necessary to pass a type to a parameterized class. At the same time, it is expected that this generic type will not participate in serialization.
+ */
+@ExperimentalSerializationApi
+public fun NothingSerializer(): KSerializer<Nothing> = NothingSerializer

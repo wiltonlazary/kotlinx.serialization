@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization
@@ -19,14 +19,23 @@ import kotlinx.serialization.modules.*
  * Typically, formats have their specific [Encoder] and [Decoder] implementations
  * as private classes and do not expose them.
  *
+ * ### Exception types for `SerialFormat` implementation
+ *
+ * Methods responsible for format-specific encoding and decoding are allowed to throw
+ * any subtype of [IllegalArgumentException] in order to indicate serialization
+ * and deserialization errors. It is recommended to throw subtypes of [SerializationException]
+ * for encoder and decoder specific errors and [IllegalArgumentException] for input
+ * and output validation-specific errors.
+ *
+ * For formats
+ *
  * ### Not stable for inheritance
  *
  * `SerialFormat` interface is not stable for inheritance in 3rd party libraries, as new methods
  * might be added to this interface or contracts of the existing methods can be changed.
  *
- * It is safe to operate with instances of `BinaryFormat` and call its methods.
+ * It is safe to operate with instances of `SerialFormat` and call its methods.
  */
-@ExperimentalSerializationApi
 public interface SerialFormat {
     /**
      * Contains all serializers registered by format user for [Contextual] and [Polymorphic] serialization.
@@ -46,16 +55,21 @@ public interface SerialFormat {
  *
  * It is safe to operate with instances of `BinaryFormat` and call its methods.
  */
-@ExperimentalSerializationApi
 public interface BinaryFormat : SerialFormat {
 
     /**
      * Serializes and encodes the given [value] to byte array using the given [serializer].
+     *
+     * @throws SerializationException in case of any encoding-specific error
+     * @throws IllegalArgumentException if the encoded input does not comply format's specification
      */
     public fun <T> encodeToByteArray(serializer: SerializationStrategy<T>, value: T): ByteArray
 
     /**
-     * Decodes and deserializes the given [byte array][bytes] to to the value of type [T] using the given [deserializer]
+     * Decodes and deserializes the given [byte array][bytes] to the value of type [T] using the given [deserializer].
+     *
+     * @throws SerializationException in case of any decoding-specific error
+     * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
      */
     public fun <T> decodeFromByteArray(deserializer: DeserializationStrategy<T>, bytes: ByteArray): T
 }
@@ -70,32 +84,41 @@ public interface BinaryFormat : SerialFormat {
  *
  * It is safe to operate with instances of `StringFormat` and call its methods.
  */
-@ExperimentalSerializationApi
 public interface StringFormat : SerialFormat {
 
     /**
      * Serializes and encodes the given [value] to string using the given [serializer].
+     *
+     * @throws SerializationException in case of any encoding-specific error
+     * @throws IllegalArgumentException if the encoded input does not comply format's specification
      */
     public fun <T> encodeToString(serializer: SerializationStrategy<T>, value: T): String
 
     /**
-     * Decodes and deserializes the given [string] to to the value of type [T] using the given [deserializer]
+     * Decodes and deserializes the given [string] to the value of type [T] using the given [deserializer].
+     *
+     * @throws SerializationException in case of any decoding-specific error
+     * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
      */
     public fun <T> decodeFromString(deserializer: DeserializationStrategy<T>, string: String): T
 }
 
 /**
  * Serializes and encodes the given [value] to string using serializer retrieved from the reified type parameter.
+ *
+ * @throws SerializationException in case of any encoding-specific error
+ * @throws IllegalArgumentException if the encoded input does not comply format's specification
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> StringFormat.encodeToString(value: T): String =
     encodeToString(serializersModule.serializer(), value)
 
 /**
- * Decodes and deserializes the given [string] to to the value of type [T] using deserializer
+ * Decodes and deserializes the given [string] to the value of type [T] using deserializer
  * retrieved from the reified type parameter.
+ *
+ * @throws SerializationException in case of any decoding-specific error
+ * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> StringFormat.decodeFromString(string: String): T =
     decodeFromString(serializersModule.serializer(), string)
 
@@ -107,8 +130,10 @@ public inline fun <reified T> StringFormat.decodeFromString(string: String): T =
  * Hex representation does not interfere with serialization and encoding process of the format and
  * only applies transformation to the resulting array. It is recommended to use for debugging and
  * testing purposes.
+ *
+ * @throws SerializationException in case of any encoding-specific error
+ * @throws IllegalArgumentException if the encoded input does not comply format's specification
  */
-@OptIn(ExperimentalSerializationApi::class)
 public fun <T> BinaryFormat.encodeToHexString(serializer: SerializationStrategy<T>, value: T): String =
     InternalHexConverter.printHexBinary(encodeToByteArray(serializer, value), lowerCase = true)
 
@@ -116,9 +141,11 @@ public fun <T> BinaryFormat.encodeToHexString(serializer: SerializationStrategy<
  * Decodes byte array from the given [hex] string and the decodes and deserializes it
  * to the value of type [T], delegating it to the [BinaryFormat].
  *
- * This method is a counterpart to [encodeToHexString]
+ * This method is a counterpart to [encodeToHexString].
+ *
+ * @throws SerializationException in case of any decoding-specific error
+ * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
  */
-@OptIn(ExperimentalSerializationApi::class)
 public fun <T> BinaryFormat.decodeFromHexString(deserializer: DeserializationStrategy<T>, hex: String): T =
     decodeFromByteArray(deserializer, InternalHexConverter.parseHexBinary(hex))
 
@@ -129,8 +156,10 @@ public fun <T> BinaryFormat.decodeFromHexString(deserializer: DeserializationStr
  * Hex representation does not interfere with serialization and encoding process of the format and
  * only applies transformation to the resulting array. It is recommended to use for debugging and
  * testing purposes.
+ *
+ * @throws SerializationException in case of any encoding-specific error
+ * @throws IllegalArgumentException if the encoded input does not comply format's specification
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> BinaryFormat.encodeToHexString(value: T): String =
     encodeToHexString(serializersModule.serializer(), value)
 
@@ -138,24 +167,30 @@ public inline fun <reified T> BinaryFormat.encodeToHexString(value: T): String =
  * Decodes byte array from the given [hex] string and the decodes and deserializes it
  * to the value of type [T], delegating it to the [BinaryFormat].
  *
- * This method is a counterpart to [encodeToHexString]
+ * This method is a counterpart to [encodeToHexString].
+ *
+ * @throws SerializationException in case of any decoding-specific error
+ * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> BinaryFormat.decodeFromHexString(hex: String): T =
     decodeFromHexString(serializersModule.serializer(), hex)
 
 /**
  * Serializes and encodes the given [value] to byte array using serializer
  * retrieved from the reified type parameter.
+ *
+ * @throws SerializationException in case of any encoding-specific error
+ * @throws IllegalArgumentException if the encoded input does not comply format's specification
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> BinaryFormat.encodeToByteArray(value: T): ByteArray =
     encodeToByteArray(serializersModule.serializer(), value)
 
 /**
- * Decodes and deserializes the given [byte array][bytes] to to the value of type [T] using deserializer
+ * Decodes and deserializes the given [byte array][bytes] to the value of type [T] using deserializer
  * retrieved from the reified type parameter.
+ *
+ * @throws SerializationException in case of any decoding-specific error
+ * @throws IllegalArgumentException if the decoded input is not a valid instance of [T]
  */
-@OptIn(ExperimentalSerializationApi::class)
 public inline fun <reified T> BinaryFormat.decodeFromByteArray(bytes: ByteArray): T =
     decodeFromByteArray(serializersModule.serializer(), bytes)

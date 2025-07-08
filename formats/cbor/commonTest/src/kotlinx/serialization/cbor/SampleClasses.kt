@@ -5,21 +5,25 @@
 package kotlinx.serialization.cbor
 
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.*
+import kotlinx.serialization.descriptors.*
+import kotlinx.serialization.encoding.*
+import kotlin.jvm.*
 
 @Serializable
 data class Simple(val a: String)
 
 @Serializable
 data class TypesUmbrella(
-        val str: String,
-        val i: Int,
-        val nullable: Double?,
-        val list: List<String>,
-        val map: Map<Int, Boolean>,
-        val inner: Simple,
-        val innersList: List<Simple>,
-        @ByteString val byteString: ByteArray,
-        val byteArray: ByteArray
+    val str: String,
+    val i: Int,
+    val nullable: Double?,
+    val list: List<String>,
+    val map: Map<Int, Boolean>,
+    val inner: Simple,
+    val innersList: List<Simple>,
+    @ByteString val byteString: ByteArray,
+    val byteArray: ByteArray
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -56,10 +60,94 @@ data class TypesUmbrella(
 
 @Serializable
 data class NumberTypesUmbrella(
-        val int: Int,
-        val long: Long,
-        val float: Float,
-        val double: Double,
-        val boolean: Boolean,
-        val char: Char
+    val int: Int,
+    val long: Long,
+    val float: Float,
+    val double: Double,
+    val boolean: Boolean,
+    val char: Char
 )
+
+@Serializable
+data class NullableByteString(
+    @ByteString val byteString: ByteArray?
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+
+        other as NullableByteString
+
+        if (byteString != null) {
+            if (other.byteString == null) return false
+            if (!byteString.contentEquals(other.byteString)) return false
+        } else if (other.byteString != null) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        return byteString?.contentHashCode() ?: 0
+    }
+}
+
+@Serializable
+data class NullableByteStringDefaultNull(
+    @ByteString val byteString: ByteArray ? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other == null || this::class != other::class) return false
+
+        other as NullableByteString
+
+        if (byteString != null) {
+            if (other.byteString == null) return false
+            if (!byteString.contentEquals(other.byteString)) return false
+        } else if (other.byteString != null) return false
+
+        return true
+    }
+
+    override fun hashCode(): Int {
+        return byteString?.contentHashCode() ?: 0
+    }
+}
+
+@Serializable(with = CustomByteStringSerializer::class)
+data class CustomByteString(val a: Byte, val b: Byte, val c: Byte)
+
+class CustomByteStringSerializer : KSerializer<CustomByteString> {
+    override val descriptor = SerialDescriptor("CustomByteString", ByteArraySerializer().descriptor)
+
+    override fun serialize(encoder: Encoder, value: CustomByteString) {
+        encoder.encodeSerializableValue(ByteArraySerializer(), byteArrayOf(value.a, value.b, value.c))
+    }
+
+    override fun deserialize(decoder: Decoder): CustomByteString {
+        val array = decoder.decodeSerializableValue(ByteArraySerializer())
+        return CustomByteString(array[0], array[1], array[2])
+    }
+}
+
+@Serializable
+data class TypeWithCustomByteString(@ByteString val x: CustomByteString)
+
+@Serializable
+data class TypeWithNullableCustomByteString(@ByteString val x: CustomByteString?)
+
+@JvmInline
+@Serializable
+value class ValueClassWithByteString(@ByteString val x: ByteArray)
+
+@JvmInline
+@Serializable
+value class ValueClassWithCustomByteString(@ByteString val x: CustomByteString)
+
+@JvmInline
+@Serializable
+value class ValueClassWithUnlabeledByteString(@ByteString val x: Inner) {
+    @JvmInline
+    @Serializable
+    value class Inner(val x: ByteArray)
+}

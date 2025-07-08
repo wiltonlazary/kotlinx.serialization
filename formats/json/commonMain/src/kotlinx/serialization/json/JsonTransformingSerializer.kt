@@ -52,7 +52,7 @@ import kotlinx.serialization.json.internal.*
  *        Should be able to parse [JsonElement] from [transformDeserialize] function.
  *        Usually, default [serializer] is sufficient.
  */
-public abstract class JsonTransformingSerializer<T : Any>(
+public abstract class JsonTransformingSerializer<T : Any?>(
     private val tSerializer: KSerializer<T>
 ) : KSerializer<T> {
 
@@ -67,7 +67,7 @@ public abstract class JsonTransformingSerializer<T : Any>(
 
     final override fun serialize(encoder: Encoder, value: T) {
         val output = encoder.asJsonEncoder()
-        var element = output.json.writeJson(value, tSerializer)
+        var element = writeJson(output.json, value, tSerializer)
         element = transformSerialize(element)
         output.encodeJsonElement(element)
     }

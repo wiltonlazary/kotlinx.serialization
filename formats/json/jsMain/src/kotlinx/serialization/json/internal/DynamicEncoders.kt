@@ -58,6 +58,13 @@ private class DynamicObjectEncoder(
     private lateinit var currentDescriptor: SerialDescriptor
     private var currentElementIsMapKey = false
 
+    /**
+     * Flag of usage polymorphism with discriminator attribute
+     */
+    private var polymorphicDiscriminator: String? = null
+    private var polymorphicSerialName: String? = null
+
+
     private object NoOutputMark
 
     class Node(val writeMode: WriteMode, val jsObject: dynamic) {
@@ -73,11 +80,12 @@ private class DynamicObjectEncoder(
         current.index = index
         currentDescriptor = descriptor
 
-        if (current.writeMode == WriteMode.MAP) {
-            currentElementIsMapKey = current.index % 2 == 0
-        } else {
-            currentName = descriptor.getElementName(index)
+        when {
+            current.writeMode == WriteMode.MAP -> currentElementIsMapKey = current.index % 2 == 0
+            current.writeMode == WriteMode.LIST && descriptor.kind is PolymorphicKind -> currentName = index.toString()
+            else -> currentName = descriptor.getJsonElementName(json, index)
         }
+
         return true
     }
 
@@ -145,7 +153,21 @@ private class DynamicObjectEncoder(
         encodeValue(value)
     }
 
+    override fun <T : Any> encodeNullableSerializableElement(
+        descriptor: SerialDescriptor,
+        index: Int,
+        serializer: SerializationStrategy<T>,
+        value: T?
+    ) {
+        if (value != null || json.configuration.explicitNulls) {
+            super.encodeNullableSerializableElement(descriptor, index, serializer, value)
+        }
+    }
+
     override fun encodeJsonElement(element: JsonElement) {
+        if (polymorphicDiscriminator != null && element !is JsonObject) {
+            throwJsonElementPolymorphicException(polymorphicSerialName, element)
+        }
         encodeSerializableValue(JsonElementSerializer, element)
     }
 
@@ -164,6 +186,13 @@ private class DynamicObjectEncoder(
     }
 
     private fun isNotStructured() = result === NoOutputMark
+
+    override fun <T> encodeSerializableValue(serializer: SerializationStrategy<T>, value: T) {
+        encodePolymorphically(serializer, value) { discriminatorName, serialName ->
+            polymorphicDiscriminator = discriminatorName
+            polymorphicSerialName = serialName
+        }
+    }
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeEncoder {
         // we currently do not structures as map key
@@ -185,13 +214,19 @@ private class DynamicObjectEncoder(
             enterNode(child, newMode)
         }
 
+        if (polymorphicDiscriminator != null) {
+            current.jsObject[polymorphicDiscriminator!!] = polymorphicSerialName ?: descriptor.serialName
+            polymorphicDiscriminator = null
+            polymorphicSerialName = null
+        }
+
         current.index = 0
         return this
     }
 
     private fun newChild(writeMode: WriteMode) = when (writeMode) {
-        WriteMode.OBJ, WriteMode.MAP -> js(BEGIN_OBJ.toString() + END_OBJ)
-        WriteMode.LIST -> js(BEGIN_LIST.toString() + END_LIST)
+        WriteMode.OBJ, WriteMode.MAP -> js("{}")
+        WriteMode.LIST -> js("[]")
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
@@ -229,7 +264,7 @@ private class DynamicPrimitiveEncoder(
         if (!json.configuration.isLenient && abs(value) > MAX_SAFE_INTEGER) {
             throw IllegalArgumentException(
                 "$value can't be deserialized to number due to a potential precision loss. " +
-                        "Use the JsonConfiguration option isLenient to serialise anyway"
+                        "Use the JsonConfiguration option isLenient to serialize anyway"
             )
         }
         encodeValue(asDouble)

@@ -6,21 +6,23 @@ import kotlinx.serialization.json.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.descriptors.*
 
-@Serializable(with = BoxSerializer::class)
-data class Box<T>(val contents: T) 
-
-class BoxSerializer<T>(private val dataSerializer: KSerializer<T>) : KSerializer<Box<T>> {
-    override val descriptor: SerialDescriptor = dataSerializer.descriptor
-    override fun serialize(encoder: Encoder, value: Box<T>) = dataSerializer.serialize(encoder, value.contents)
-    override fun deserialize(decoder: Decoder) = Box(dataSerializer.deserialize(decoder))
+import java.util.Date
+import java.text.SimpleDateFormat
+  
+object DateAsLongSerializer : KSerializer<Date> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("my.app.DateAsLong", PrimitiveKind.LONG)
+    override fun serialize(encoder: Encoder, value: Date) = encoder.encodeLong(value.time)
+    override fun deserialize(decoder: Decoder): Date = Date(decoder.decodeLong())
 }
 
-@Serializable
-data class Project(val name: String)
+@Serializable          
+class ProgrammingLanguage(
+    val name: String,
+    val releaseDates: List<@Serializable(DateAsLongSerializer::class) Date>
+)
 
 fun main() {
-    val box = Box(Project("kotlinx.serialization"))
-    val string = Json.encodeToString(box)
-    println(string)
-    println(Json.decodeFromString<Box<Project>>(string))
+    val df = SimpleDateFormat("yyyy-MM-ddX")
+    val data = ProgrammingLanguage("Kotlin", listOf(df.parse("2023-07-06+00"), df.parse("2023-04-25+00"), df.parse("2022-12-28+00")))
+    println(Json.encodeToString(data))
 }

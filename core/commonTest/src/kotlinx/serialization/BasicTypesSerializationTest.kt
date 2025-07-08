@@ -1,15 +1,17 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization
 
+import kotlinx.serialization.builtins.NothingSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.encoding.CompositeDecoder.Companion.UNKNOWN_NAME
-import kotlinx.serialization.internal.*
 import kotlinx.serialization.modules.*
 import kotlin.test.*
+import kotlin.time.Duration
 
 /*
  * Test ensures that type that aggregate all basic (primitive/collection/maps/arrays)
@@ -20,7 +22,7 @@ class BasicTypesSerializationTest {
 
     // KeyValue Input/Output
     class KeyValueOutput(private val sb: StringBuilder) : AbstractEncoder() {
-        override val serializersModule: SerializersModule = EmptySerializersModule
+        override val serializersModule: SerializersModule = EmptySerializersModule()
 
         override fun beginStructure(descriptor: SerialDescriptor): CompositeEncoder {
             sb.append('{')
@@ -56,7 +58,7 @@ class BasicTypesSerializationTest {
     }
 
     class KeyValueInput(private val inp: Parser) : AbstractDecoder() {
-        override val serializersModule: SerializersModule = EmptySerializersModule
+        override val serializersModule: SerializersModule = EmptySerializersModule()
 
         override fun beginStructure(descriptor: SerialDescriptor): CompositeDecoder {
             inp.expectAfterWhiteSpace('{')
@@ -83,7 +85,7 @@ class BasicTypesSerializationTest {
 
         override fun decodeNotNullMark(): Boolean {
             inp.skipWhitespace()
-            if (inp.cur != 'n'.toInt()) return true
+            if (inp.cur != 'n'.code) return true
             return false
         }
 
@@ -128,7 +130,7 @@ class BasicTypesSerializationTest {
         }
 
         fun expect(c: Char) {
-            check(cur == c.toInt()) { "Expected '$c'" }
+            check(cur == c.code) { "Expected '$c'" }
             next()
         }
 
@@ -152,7 +154,7 @@ class BasicTypesSerializationTest {
         private var position: Int = 0
         fun read(): Int = when (position) {
             str.length -> -1
-            else -> str[position++].toInt()
+            else -> str[position++].code
         }
     }
 
@@ -170,4 +172,39 @@ class BasicTypesSerializationTest {
         assertEquals(umbrellaInstance, other)
         assertNotSame(umbrellaInstance, other)
     }
+
+    @Test
+    fun testEncodeDuration() {
+        val sb = StringBuilder()
+        val out = KeyValueOutput(sb)
+
+        val duration = Duration.parseIsoString("P4DT12H30M5S")
+        out.encodeSerializableValue(Duration.serializer(), duration)
+
+        assertEquals("\"${duration.toIsoString()}\"", sb.toString())
+    }
+
+    @Test
+    fun testDecodeDuration() {
+        val durationString = "P4DT12H30M5S"
+        val inp = KeyValueInput(Parser(StringReader("\"$durationString\"")))
+        val other = inp.decodeSerializableValue(Duration.serializer())
+        assertEquals(Duration.parseIsoString(durationString), other)
+    }
+
+    @Test
+    fun testNothingSerialization() {
+        // impossible to deserialize Nothing
+        assertFailsWith(SerializationException::class, "'kotlin.Nothing' does not have instances") {
+            val inp = KeyValueInput(Parser(StringReader("42")))
+            inp.decodeSerializableValue(NothingSerializer())
+        }
+
+        // it is possible to serialize only `null` for `Nothing?`
+        val sb = StringBuilder()
+        val out = KeyValueOutput(sb)
+        out.encodeNullableSerializableValue(NothingSerializer(), null)
+        assertEquals("null", sb.toString())
+    }
+
 }

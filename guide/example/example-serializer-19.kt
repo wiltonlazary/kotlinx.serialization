@@ -6,13 +6,21 @@ import kotlinx.serialization.json.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.descriptors.*
 
-// NOT @Serializable
-class Project(val name: String, val language: String)
-                           
-@Serializer(forClass = Project::class)
-object ProjectSerializer
+@Serializable(with = BoxSerializer::class)
+data class Box<T>(val contents: T) 
+
+class BoxSerializer<T>(private val dataSerializer: KSerializer<T>) : KSerializer<Box<T>> {
+    override val descriptor: SerialDescriptor = SerialDescriptor("my.app.Box", dataSerializer.descriptor)
+    override fun serialize(encoder: Encoder, value: Box<T>) = dataSerializer.serialize(encoder, value.contents)
+    override fun deserialize(decoder: Decoder) = Box(dataSerializer.deserialize(decoder))
+}
+
+@Serializable
+data class Project(val name: String)
 
 fun main() {
-    val data = Project("kotlinx.serialization", "Kotlin")
-    println(Json.encodeToString(ProjectSerializer, data))    
+    val box = Box(Project("kotlinx.serialization"))
+    val string = Json.encodeToString(box)
+    println(string)
+    println(Json.decodeFromString<Box<Project>>(string))
 }

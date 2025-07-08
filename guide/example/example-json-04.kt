@@ -4,14 +4,18 @@ package example.exampleJson04
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
-val format = Json { coerceInputValues = true }
+@OptIn(ExperimentalSerializationApi::class) // JsonIgnoreUnknownKeys is an experimental annotation for now
+@Serializable
+@JsonIgnoreUnknownKeys
+data class Outer(val a: Int, val inner: Inner)
 
-@Serializable 
-data class Project(val name: String, val language: String = "Kotlin")
+@Serializable
+data class Inner(val x: String)
 
 fun main() {
-    val data = format.decodeFromString<Project>("""
-        {"name":"kotlinx.serialization","language":null}
-    """)
-    println(data)
+    // 1
+    println(Json.decodeFromString<Outer>("""{"a":1,"inner":{"x":"value"},"unknownKey":42}"""))
+    println()
+    // 2
+    println(Json.decodeFromString<Outer>("""{"a":1,"inner":{"x":"value","unknownKey":"unknownValue"}}"""))
 }

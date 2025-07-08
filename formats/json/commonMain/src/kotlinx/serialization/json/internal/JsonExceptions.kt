@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 @file:Suppress("FunctionName")
@@ -28,7 +28,7 @@ internal fun JsonDecodingException(offset: Int, message: String) =
  */
 internal class JsonEncodingException(message: String) : JsonException(message)
 
-internal fun JsonDecodingException(offset: Int, message: String, input: String) =
+internal fun JsonDecodingException(offset: Int, message: String, input: CharSequence) =
     JsonDecodingException(offset, "$message\nJSON input: ${input.minify(offset)}")
 
 internal fun InvalidFloatingPointEncoded(value: Number, output: String) = JsonEncodingException(
@@ -38,19 +38,35 @@ internal fun InvalidFloatingPointEncoded(value: Number, output: String) = JsonEn
             "Current output: ${output.minify()}"
 )
 
+
+// Extension on JSON reader and fail immediately
+internal fun AbstractJsonLexer.throwInvalidFloatingPointDecoded(result: Number): Nothing {
+    fail("Unexpected special floating-point value $result. By default, " +
+            "non-finite floating point values are prohibited because they do not conform JSON specification",
+        hint = specialFlowingValuesHint)
+}
+
+internal fun AbstractJsonLexer.invalidTrailingComma(entity: String = "object"): Nothing {
+    fail("Trailing comma before the end of JSON $entity",
+        position = currentPosition - 1,
+        hint = "Trailing commas are non-complaint JSON and not allowed by default. Use 'allowTrailingComma = true' in 'Json {}' builder to support them."
+    )
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+internal fun InvalidKeyKindException(keyDescriptor: SerialDescriptor) = JsonEncodingException(
+    "Value of type '${keyDescriptor.serialName}' can't be used in JSON as a key in the map. " +
+            "It should have either primitive or enum kind, but its kind is '${keyDescriptor.kind}'.\n" +
+            allowStructuredMapKeysHint
+)
+
+// Exceptions for tree-based decoder
+
 internal fun InvalidFloatingPointEncoded(value: Number, key: String, output: String) =
     JsonEncodingException(unexpectedFpErrorMessage(value, key, output))
 
 internal fun InvalidFloatingPointDecoded(value: Number, key: String, output: String) =
     JsonDecodingException(-1, unexpectedFpErrorMessage(value, key, output))
-
-// Extension on JSON reader and fail immediately
-internal fun JsonReader.throwInvalidFloatingPointDecoded(result: Number): Nothing {
-    fail("Unexpected special floating-point value $result. By default, " +
-            "non-finite floating point values are prohibited because they do not conform JSON specification. " +
-            specialFlowingValuesHint
-    )
-}
 
 private fun unexpectedFpErrorMessage(value: Number, key: String, output: String): String {
     return "Unexpected special floating-point value $value with key $key. By default, " +
@@ -59,20 +75,7 @@ private fun unexpectedFpErrorMessage(value: Number, key: String, output: String)
             "Current output: ${output.minify()}"
 }
 
-internal fun UnknownKeyException(key: String, input: String) = JsonDecodingException(
-    -1,
-    "Encountered unknown key '$key'.\n" +
-            "$ignoreUnknownKeysHint\n" +
-            "Current input: ${input.minify()}"
-)
-
-internal fun InvalidKeyKindException(keyDescriptor: SerialDescriptor) = JsonEncodingException(
-    "Value of type '${keyDescriptor.serialName}' can't be used in JSON as a key in the map. " +
-            "It should have either primitive or enum kind, but its kind is '${keyDescriptor.kind}'.\n" +
-            allowStructuredMapKeysHint
-)
-
-private fun String.minify(offset: Int = -1): String {
+internal fun CharSequence.minify(offset: Int = -1): CharSequence {
     if (length < 200) return this
     if (offset == -1) {
         val start = this.length - 60

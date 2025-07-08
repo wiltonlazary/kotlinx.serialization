@@ -4,56 +4,54 @@ package example.exampleJson17
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.descriptors.*
-import kotlinx.serialization.encoding.*
+import kotlin.io.encoding.*
 
-@Serializable(with = ResponseSerializer::class)
-sealed class Response<out T> {
-    data class Ok<out T>(val data: T) : Response<T>()
-    data class Error(val message: String) : Response<Nothing>()
-}
+@OptIn(ExperimentalEncodingApi::class)
+object ByteArrayAsBase64Serializer : KSerializer<ByteArray> {
+    private val base64 = Base64.Default
 
-class ResponseSerializer<T>(private val dataSerializer: KSerializer<T>) : KSerializer<Response<T>> {
-    override val descriptor: SerialDescriptor = buildSerialDescriptor("Response", PolymorphicKind.SEALED) {
-        element("Ok", buildClassSerialDescriptor("Ok") {
-            element<String>("message")
-        })
-        element("Error", dataSerializer.descriptor)
+    override val descriptor: SerialDescriptor
+        get() = PrimitiveSerialDescriptor(
+            "ByteArrayAsBase64Serializer",
+            PrimitiveKind.STRING
+        )
+
+    override fun serialize(encoder: Encoder, value: ByteArray) {
+        val base64Encoded = base64.encode(value)
+        encoder.encodeString(base64Encoded)
     }
 
-    override fun deserialize(decoder: Decoder): Response<T> {
-        // Decoder -> JsonDecoder
-        require(decoder is JsonDecoder) // this class can be decoded only by Json
-        // JsonDecoder -> JsonElement
-        val element = decoder.decodeJsonElement()
-        // JsonElement -> value
-        if (element is JsonObject && "error" in element)
-            return Response.Error(element["error"]!!.jsonPrimitive.content)
-        return Response.Ok(decoder.json.decodeFromJsonElement(dataSerializer, element))
-    }
-
-    override fun serialize(encoder: Encoder, value: Response<T>) {
-        // Encoder -> JsonEncoder
-        require(encoder is JsonEncoder) // This class can be encoded only by Json
-        // value -> JsonElement
-        val element = when (value) {
-            is Response.Ok -> encoder.json.encodeToJsonElement(dataSerializer, value.data)
-            is Response.Error -> buildJsonObject { put("error", value.message) }
-        }
-        // JsonElement -> JsonEncoder
-        encoder.encodeJsonElement(element)
+    override fun deserialize(decoder: Decoder): ByteArray {
+        val base64Decoded = decoder.decodeString()
+        return base64.decode(base64Decoded)
     }
 }
 
 @Serializable
-data class Project(val name: String)
+data class Value(
+    @Serializable(with = ByteArrayAsBase64Serializer::class)
+    val base64Input: ByteArray
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        other as Value
+        return base64Input.contentEquals(other.base64Input)
+    }
+
+    override fun hashCode(): Int {
+        return base64Input.contentHashCode()
+    }
+}
 
 fun main() {
-    val responses = listOf(
-        Response.Ok(Project("kotlinx.serialization")),
-        Response.Error("Not found")
-    )
-    val string = Json.encodeToString(responses)
-    println(string)
-    println(Json.decodeFromString<List<Response<Project>>>(string))
+    val string = "foo string"
+    val value = Value(string.toByteArray())
+    val encoded = Json.encodeToString(value)
+    println(encoded)
+    val decoded = Json.decodeFromString<Value>(encoded)
+    println(decoded.base64Input.decodeToString())
 }

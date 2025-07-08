@@ -4,27 +4,18 @@ package example.exampleJson14
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
-import kotlinx.serialization.builtins.*
-
-@Serializable 
-data class Project(
-    val name: String,
-    @Serializable(with = UserListSerializer::class)      
-    val users: List<User>
-)
+@OptIn(ExperimentalSerializationApi::class) // classDiscriminatorMode is an experimental setting for now
+val format = Json { classDiscriminatorMode = ClassDiscriminatorMode.NONE }
 
 @Serializable
-data class User(val name: String)
-
-object UserListSerializer : JsonTransformingSerializer<List<User>>(ListSerializer(User.serializer())) {
-
-    override fun transformSerialize(element: JsonElement): JsonElement {
-        require(element is JsonArray) // we are using this serializer with lists only
-        return element.singleOrNull() ?: element
-    }
+sealed class Project {
+    abstract val name: String
 }
 
-fun main() {     
-    val data = Project("kotlinx.serialization", listOf(User("kotlin")))
-    println(Json.encodeToString(data))
+@Serializable
+class OwnedProject(override val name: String, val owner: String) : Project()
+
+fun main() {
+    val data: Project = OwnedProject("kotlinx.coroutines", "kotlin")
+    println(format.encodeToString(data))
 }

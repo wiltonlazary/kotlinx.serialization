@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization.cbor
@@ -13,10 +13,10 @@ import kotlinx.serialization.cbor.internal.*
 class CborWriterSpecTest : WordSpec() {
     init {
 
-        fun withEncoder(block: CborEncoder.() -> Unit): String {
+        fun withEncoder(block: ByteArrayOutput.() -> Unit): String {
             val result = ByteArrayOutput()
-            CborEncoder(result).block()
-            return HexConverter.printHexBinary(result.toByteArray()).toLowerCase()
+            result.block()
+            return HexConverter.printHexBinary(result.toByteArray()).lowercase()
         }
 
         // Examples from https://tools.ietf.org/html/rfc7049#appendix-A

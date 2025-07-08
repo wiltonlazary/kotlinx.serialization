@@ -4,19 +4,15 @@ package example.exampleJson15
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
-@Serializable
-class Project(val name: String, val language: String)
+@OptIn(ExperimentalSerializationApi::class) // decodeEnumsCaseInsensitive is an experimental setting for now
+val format = Json { decodeEnumsCaseInsensitive = true }
 
-object ProjectSerializer : JsonTransformingSerializer<Project>(Project.serializer()) {
-    override fun transformSerialize(element: JsonElement): JsonElement =
-        // Filter out top-level key value pair with the key "language" and the value "Kotlin"
-        JsonObject(element.jsonObject.filterNot {
-            (k, v) -> k == "language" && v.jsonPrimitive.content == "Kotlin"
-        })
-}                           
+@OptIn(ExperimentalSerializationApi::class) // JsonNames is an experimental annotation for now
+enum class Cases { VALUE_A, @JsonNames("Alternative") VALUE_B }
+
+@Serializable
+data class CasesList(val cases: List<Cases>)
 
 fun main() {
-    val data = Project("kotlinx.serialization", "Kotlin")
-    println(Json.encodeToString(data)) // using plugin-generated serializer
-    println(Json.encodeToString(ProjectSerializer, data)) // using custom serializer
+  println(format.decodeFromString<CasesList>("""{"cases":["value_A", "alternative"]}""")) 
 }

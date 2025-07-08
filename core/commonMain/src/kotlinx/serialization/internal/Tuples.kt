@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 @file:Suppress("DEPRECATION_ERROR")
 @file:OptIn(ExperimentalSerializationApi::class)
@@ -11,7 +11,6 @@ import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
 import kotlin.native.concurrent.*
 
-@SharedImmutable
 private val NULL = Any()
 private const val deprecationMessage =
     "This class is used only by the plugin in generated code and should not be used directly. Use corresponding factory functions instead"
@@ -33,39 +32,38 @@ internal sealed class KeyValueSerializer<K, V, R>(
         structuredEncoder.endStructure(descriptor)
     }
 
-    override fun deserialize(decoder: Decoder): R {
-        val composite = decoder.beginStructure(descriptor)
-        if (composite.decodeSequentially()) {
-            val key = composite.decodeSerializableElement(descriptor, 0, keySerializer)
-            val value = composite.decodeSerializableElement(descriptor, 1, valueSerializer)
-            return toResult(key, value)
+    override fun deserialize(decoder: Decoder): R = decoder.decodeStructure(descriptor) {
+        if (decodeSequentially()) {
+            val key = decodeSerializableElement(descriptor, 0, keySerializer)
+            val value = decodeSerializableElement(descriptor, 1, valueSerializer)
+            return@decodeStructure toResult(key, value)
         }
 
         var key: Any? = NULL
         var value: Any? = NULL
         mainLoop@ while (true) {
-            when (val idx = composite.decodeElementIndex(descriptor)) {
+            when (val idx = decodeElementIndex(descriptor)) {
                 CompositeDecoder.DECODE_DONE -> {
                     break@mainLoop
                 }
                 0 -> {
-                    key = composite.decodeSerializableElement(descriptor, 0, keySerializer)
+                    key = decodeSerializableElement(descriptor, 0, keySerializer)
                 }
                 1 -> {
-                    value = composite.decodeSerializableElement(descriptor, 1, valueSerializer)
+                    value = decodeSerializableElement(descriptor, 1, valueSerializer)
                 }
                 else -> throw SerializationException("Invalid index: $idx")
             }
         }
-        composite.endStructure(descriptor)
         if (key === NULL) throw SerializationException("Element 'key' is missing")
         if (value === NULL) throw SerializationException("Element 'value' is missing")
         @Suppress("UNCHECKED_CAST")
-        return toResult(key as K, value as V)
+        return@decodeStructure toResult(key as K, value as V)
     }
 }
 
 @PublishedApi
+@Suppress("EXTENSION_SHADOWED_BY_MEMBER")
 internal class MapEntrySerializer<K, V>(
     keySerializer: KSerializer<K>,
     valueSerializer: KSerializer<V>

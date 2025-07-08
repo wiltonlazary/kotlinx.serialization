@@ -1,13 +1,11 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 @file:OptIn(ExperimentalSerializationApi::class)
 package kotlinx.serialization.internal
 
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
-import kotlinx.serialization.encoding.*
-import kotlin.native.concurrent.*
 import kotlin.reflect.*
 
 internal object InternalHexConverter {
@@ -22,7 +20,7 @@ internal object InternalHexConverter {
         while (i < len) {
             val h = hexToInt(s[i])
             val l = hexToInt(s[i + 1])
-            require(!(h == -1 || l == -1)) { "Invalid hex chars: ${s[i]}${s[i+1]}" }
+            require(!(h == -1 || l == -1)) { "Invalid hex chars: ${s[i]}${s[i + 1]}" }
 
             bytes[i / 2] = ((h shl 4) + l).toByte()
             i += 2
@@ -44,7 +42,7 @@ internal object InternalHexConverter {
             r.append(hexCode[b.toInt() shr 4 and 0xF])
             r.append(hexCode[b.toInt() and 0xF])
         }
-        return if (lowerCase) r.toString().toLowerCase() else r.toString()
+        return if (lowerCase) r.toString().lowercase() else r.toString()
     }
 
     fun toHexString(n: Int): String {
@@ -56,8 +54,9 @@ internal object InternalHexConverter {
     }
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 internal fun SerialDescriptor.cachedSerialNames(): Set<String> {
-    if (this is PluginGeneratedSerialDescriptor) return namesSet
+    if (this is CachedNames) return serialNames
     val result = HashSet<String>(elementsCount)
     for (i in 0 until elementsCount) {
         result += getElementName(i)
@@ -65,7 +64,6 @@ internal fun SerialDescriptor.cachedSerialNames(): Set<String> {
     return result
 }
 
-@SharedImmutable
 private val EMPTY_DESCRIPTOR_ARRAY: Array<SerialDescriptor> = arrayOf()
 
 /**
@@ -85,22 +83,39 @@ internal inline fun <T> SerializationStrategy<*>.cast(): SerializationStrategy<T
 
 @Suppress("UNCHECKED_CAST", "NOTHING_TO_INLINE")
 @PublishedApi
-internal inline fun <T> DeserializationStrategy<*>.cast(): DeserializationStrategy<T> = this as DeserializationStrategy<T>
+internal inline fun <T> DeserializationStrategy<*>.cast(): DeserializationStrategy<T> =
+    this as DeserializationStrategy<T>
 
 internal fun KClass<*>.serializerNotRegistered(): Nothing {
-    throw SerializationException(
-        "Serializer for class '${simpleName}' is not found.\n" +
-            "Mark the class as @Serializable or provide the serializer explicitly."
-    )
+    throw SerializationException(notRegisteredMessage())
 }
+
+internal fun KClass<*>.notRegisteredMessage(): String = notRegisteredMessage(simpleName ?: "<local class name not available>")
+
+internal fun notRegisteredMessage(className: String): String = "Serializer for class '$className' is not found.\n" +
+        "Please ensure that class is marked as '@Serializable' and that the serialization compiler plugin is applied.\n"
 
 internal expect fun KClass<*>.platformSpecificSerializerNotRegistered(): Nothing
 
 @Suppress("UNCHECKED_CAST")
 internal fun KType.kclass() = when (val t = classifier) {
     is KClass<*> -> t
-    else -> error("Only KClass supported as classifier, got $t")
+    is KTypeParameter -> {
+        // If you are going to change this error message, please also actualize the message in the compiler intrinsics here:
+        // Kotlin/plugins/kotlinx-serialization/kotlinx-serialization.backend/src/org/jetbrains/kotlinx/serialization/compiler/backend/ir/SerializationJvmIrIntrinsicSupport.kt#argumentTypeOrGenerateException
+        throw IllegalArgumentException(
+            "Captured type parameter $t from generic non-reified function. " +
+                    "Such functionality cannot be supported because $t is erased, either specify serializer explicitly or make " +
+                    "calling function inline with reified $t."
+        )
+    }
+
+    else ->  throw IllegalArgumentException("Only KClass supported as classifier, got $t")
 } as KClass<Any>
+
+// If you are going to change this error message, please also actualize the message in the compiler intrinsics here:
+// Kotlin/plugins/kotlinx-serialization/kotlinx-serialization.backend/src/org/jetbrains/kotlinx/serialization/compiler/backend/ir/SerializationJvmIrIntrinsicSupport.kt#argumentTypeOrGenerateException
+internal fun KTypeProjection.typeOrThrow(): KType = requireNotNull(type) { "Star projections in type arguments are not allowed, but had $type" }
 
 /**
  * Constructs KSerializer<D<T0, T1, ...>> by given KSerializer<T0>, KSerializer<T1>, ...
@@ -125,18 +140,50 @@ internal expect fun BooleanArray.getChecked(index: Int): Boolean
 
 internal expect fun <T : Any> KClass<T>.compiledSerializerImpl(): KSerializer<T>?
 
-internal expect fun <T : Any, E : T?> ArrayList<E>.toNativeArrayImpl(eClass: KClass<T>): Array<E>
+internal expect fun <T: Any> KClass<T>.isInterface(): Boolean
 
 /**
- * Checks whether the receiver is an instance of a given kclass.
- *
- * This check is a replacement for [KClass.isInstance] because on JVM it requires kotlin-reflect.jar in classpath (see KT-14720).
- *
- * On JS and Native, this function delegates to aforementioned [KClass.isInstance] since it is supported there out-of-the-box;
- * on JVM, it falls back to `java.lang.Class.isInstance`, which causes difference when applied to function types with big arity.
+ * Create serializers cache for non-parametrized and non-contextual serializers.
+ * The activity and type of cache is determined for a specific platform and a specific environment.
  */
-internal expect fun Any.isInstanceOf(kclass: KClass<*>): Boolean
+internal expect fun <T> createCache(factory: (KClass<*>) -> KSerializer<T>?): SerializerCache<T>
+
+/**
+ * Create serializers cache for parametrized and non-contextual serializers. Parameters also non-contextual.
+ * The activity and type of cache is determined for a specific platform and a specific environment.
+ */
+internal expect fun <T> createParametrizedCache(factory: (KClass<Any>, List<KType>) -> KSerializer<T>?): ParametrizedSerializerCache<T>
+
+internal expect fun <T : Any, E : T?> ArrayList<E>.toNativeArrayImpl(eClass: KClass<T>): Array<E>
 
 internal inline fun <T, K> Iterable<T>.elementsHashCodeBy(selector: (T) -> K): Int {
     return fold(1) { hash, element -> 31 * hash + selector(element).hashCode() }
+}
+
+/**
+ * Cache class for non-parametrized and non-contextual serializers.
+ */
+internal interface SerializerCache<T> {
+    /**
+     * Returns cached serializer or `null` if serializer not found.
+     */
+    fun get(key: KClass<Any>): KSerializer<T>?
+
+    /**
+     * Use SOLELY for test purposes.
+     * May return `false` even if `get` returns value. It means that entry was computed, but not
+     *  stored (behavior for all non-JVM platforms).
+     */
+    fun isStored(key: KClass<*>): Boolean = false
+}
+
+/**
+ * Cache class for parametrized and non-contextual serializers.
+ */
+internal interface ParametrizedSerializerCache<T> {
+    /**
+     * Returns successful result with cached serializer or `null` if root serializer not found.
+     * If no serializer was found for the parameters, then result contains an exception.
+     */
+    fun get(key: KClass<Any>, types: List<KType> = emptyList()): Result<KSerializer<T>?>
 }

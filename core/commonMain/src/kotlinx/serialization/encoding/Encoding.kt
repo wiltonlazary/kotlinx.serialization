@@ -51,10 +51,16 @@ import kotlinx.serialization.modules.*
  * (`{` or `[`, depending on the descriptor kind), returning the [CompositeEncoder] that is aware of colon separator,
  * that should be appended between each key-value pair, whilst [CompositeEncoder.endStructure] will write a closing bracket.
  *
- * ### Exception guarantees.
+ * ### Exception guarantees
+ *
  * For the regular exceptions, such as invalid input, conflicting serial names,
  * [SerializationException] can be thrown by any encoder methods.
  * It is recommended to declare a format-specific subclass of [SerializationException] and throw it.
+ *
+ * ### Exception safety
+ *
+ * In general, catching [SerializationException] from any of `encode*` methods is not allowed and produces unspecified behaviour.
+ * After thrown exception, the current encoder is left in an arbitrary state, no longer suitable for further encoding.
  *
  * ### Format encapsulation
  *
@@ -82,11 +88,6 @@ import kotlinx.serialization.modules.*
  * XML would do roughly the same, but with different separators and structures, while ProtoBuf
  * machinery could be completely different.
  * In any case, all these parsing details are encapsulated by an encoder.
- *
- * ### Exception safety
- *
- * In general, catching [SerializationException] from any of `encode*` methods is not allowed and produces unspecified behaviour.
- * After thrown exception, current encoder is left in an arbitrary state, no longer suitable for further encoding.
  *
  * ### Encoder implementation.
  *
@@ -207,6 +208,26 @@ public interface Encoder {
     public fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int)
 
     /**
+     * Returns [Encoder] for encoding an underlying type of a value class in an inline manner.
+     * [descriptor] describes a serializable value class.
+     *
+     * Namely, for the `@Serializable @JvmInline value class MyInt(val my: Int)`,
+     * the following sequence is used:
+     * ```
+     * thisEncoder.encodeInline(MyInt.serializer().descriptor).encodeInt(my)
+     * ```
+     *
+     * Current encoder may return any other instance of [Encoder] class, depending on the provided [descriptor].
+     * For example, when this function is called on Json encoder with `UInt.serializer().descriptor`, the returned encoder is able
+     * to encode unsigned integers.
+     *
+     * Note that this function returns [Encoder] instead of the [CompositeEncoder]
+     * because value classes always have the single property.
+     * Calling [Encoder.beginStructure] on returned instance leads to an unspecified behavior and, in general, is prohibited.
+     */
+    public fun encodeInline(descriptor: SerialDescriptor): Encoder
+
+    /**
      * Encodes the beginning of the nested structure in a serialized form
      * and returns [CompositeDecoder] responsible for encoding this very structure.
      * E.g the hierarchy:
@@ -252,7 +273,7 @@ public interface Encoder {
 
     /**
      * Encodes the [value] of type [T] by delegating the encoding process to the given [serializer].
-     * For example, `encodeInt` call us equivalent to delegating integer encoding to [Int.serializer][Int.Companion.serializer]:
+     * For example, `encodeInt` call is equivalent to delegating integer encoding to [Int.serializer][Int.Companion.serializer]:
      * `encodeSerializableValue(Int.serializer())`
      */
     public fun <T : Any?> encodeSerializableValue(serializer: SerializationStrategy<T>, value: T) {
@@ -325,6 +346,8 @@ public interface CompositeEncoder {
      *    encoder.encodeIntElement(serialDesc, 0, value.int);
      * }
      * ```
+     *
+     * This method is never invoked for properties annotated with [EncodeDefault].
      */
     @ExperimentalSerializationApi
     public fun shouldEncodeElementDefault(descriptor: SerialDescriptor, index: Int): Boolean = true
@@ -378,11 +401,46 @@ public interface CompositeEncoder {
      * The element at the given [index] should have [PrimitiveKind.DOUBLE] kind.
      */
     public fun encodeDoubleElement(descriptor: SerialDescriptor, index: Int, value: Double)
+
     /**
      * Encodes a string [value] associated with an element at the given [index] in [serial descriptor][descriptor].
      * The element at the given [index] should have [PrimitiveKind.STRING] kind.
      */
     public fun encodeStringElement(descriptor: SerialDescriptor, index: Int, value: String)
+
+    /**
+     * Returns [Encoder] for decoding an underlying type of a value class in an inline manner.
+     * Serializable value class is described by the [child descriptor][SerialDescriptor.getElementDescriptor]
+     * of given [descriptor] at [index].
+     *
+     * Namely, for the `@Serializable @JvmInline value class MyInt(val my: Int)`,
+     * and `@Serializable class MyData(val myInt: MyInt)` the following sequence is used:
+     * ```
+     * thisEncoder.encodeInlineElement(MyData.serializer.descriptor, 0).encodeInt(my)
+     * ```
+     *
+     * This method provides an opportunity for the optimization to avoid boxing of a carried value
+     * and its invocation should be equivalent to the following:
+     * ```
+     * thisEncoder.encodeSerializableElement(MyData.serializer.descriptor, 0, MyInt.serializer(), myInt)
+     * ```
+     *
+     * Current encoder may return any other instance of [Encoder] class, depending on provided descriptor.
+     * For example, when this function is called on Json encoder with descriptor that has
+     * `UInt.serializer().descriptor` at the given [index], the returned encoder is able
+     * to encode unsigned integers.
+     *
+     * Note that this function returns [Encoder] instead of the [CompositeEncoder]
+     * because value classes always have the single property.
+     * Calling [Encoder.beginStructure] on returned instance leads to an unspecified behavior and, in general, is prohibited.
+     *
+     * @see Encoder.encodeInline
+     * @see SerialDescriptor.getElementDescriptor
+     */
+    public fun encodeInlineElement(
+        descriptor: SerialDescriptor,
+        index: Int
+    ): Encoder
 
     /**
      * Delegates [value] encoding of the type [T] to the given [serializer].
@@ -411,11 +469,39 @@ public interface CompositeEncoder {
 /**
  * Begins a structure, encodes it using the given [block] and ends it.
  */
-public inline fun Encoder.encodeStructure(descriptor: SerialDescriptor, block: CompositeEncoder.() -> Unit) {
+public inline fun Encoder.encodeStructure(
+    descriptor: SerialDescriptor,
+    crossinline block: CompositeEncoder.() -> Unit
+) {
     val composite = beginStructure(descriptor)
-    try {
-        composite.block()
-    } finally {
-        composite.endStructure(descriptor)
+    composite.block()
+    composite.endStructure(descriptor)
+}
+
+/**
+ * Begins a collection, encodes it using the given [block] and ends it.
+ */
+public inline fun Encoder.encodeCollection(
+    descriptor: SerialDescriptor,
+    collectionSize: Int,
+    crossinline block: CompositeEncoder.() -> Unit
+) {
+    val composite = beginCollection(descriptor, collectionSize)
+    composite.block()
+    composite.endStructure(descriptor)
+}
+
+/**
+ * Begins a collection, calls [block] with each item and ends the collections.
+ */
+public inline fun <E> Encoder.encodeCollection(
+    descriptor: SerialDescriptor,
+    collection: Collection<E>,
+    crossinline block: CompositeEncoder.(index: Int, E) -> Unit
+) {
+    encodeCollection(descriptor, collection.size) {
+        collection.forEachIndexed { index, e ->
+            block(index, e)
+        }
     }
 }

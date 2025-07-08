@@ -17,7 +17,7 @@ import kotlin.reflect.*
  *
  * By default, without special support from [Encoder], polymorphic types are serialized as list with
  * two elements: class [serial name][SerialDescriptor.serialName] (String) and the object itself.
- * Serial name equals to fully-qualified class name by default and can be changed via @[SerialName] annotation.
+ * Serial name equals to fully qualified class name by default and can be changed via @[SerialName] annotation.
  */
 @InternalSerializationApi
 @OptIn(ExperimentalSerializationApi::class)
@@ -40,7 +40,7 @@ public abstract class AbstractPolymorphicSerializer<T : Any> internal constructo
         var klassName: String? = null
         var value: Any? = null
         if (decodeSequentially()) {
-            return decodeSequentially(this)
+            return@decodeStructure decodeSequentially(this)
         }
 
         mainLoop@ while (true) {
@@ -58,8 +58,8 @@ public abstract class AbstractPolymorphicSerializer<T : Any> internal constructo
                 }
                 else -> throw SerializationException(
                     "Invalid index in polymorphic deserialization of " +
-                            (klassName ?: "unknown class") +
-                            "\n Expected 0, 1 or DECODE_DONE(-1), but found $index"
+                        (klassName ?: "unknown class") +
+                        "\n Expected 0, 1 or DECODE_DONE(-1), but found $index"
                 )
             }
         }
@@ -81,7 +81,7 @@ public abstract class AbstractPolymorphicSerializer<T : Any> internal constructo
     public open fun findPolymorphicSerializerOrNull(
         decoder: CompositeDecoder,
         klassName: String?
-    ): DeserializationStrategy<out T>? = decoder.serializersModule.getPolymorphic(baseClass, klassName)
+    ): DeserializationStrategy<T>? = decoder.serializersModule.getPolymorphic(baseClass, klassName)
 
 
     /**
@@ -98,13 +98,14 @@ public abstract class AbstractPolymorphicSerializer<T : Any> internal constructo
 
 @JvmName("throwSubtypeNotRegistered")
 internal fun throwSubtypeNotRegistered(subClassName: String?, baseClass: KClass<*>): Nothing {
-    val scope = "in the scope of '${baseClass.simpleName}'"
+    val scope = "in the polymorphic scope of '${baseClass.simpleName}'"
     throw SerializationException(
         if (subClassName == null)
-            "Class discriminator was missing and no default polymorphic serializers were registered $scope"
+            "Class discriminator was missing and no default serializers were registered $scope."
         else
-            "Class '$subClassName' is not registered for polymorphic serialization $scope.\n" +
-            "Mark the base class as 'sealed' or register the serializer explicitly."
+            "Serializer for subclass '$subClassName' is not found $scope.\n" +
+                "Check if class with serial name '$subClassName' exists and serializer is registered in a corresponding SerializersModule.\n" +
+                "To be registered automatically, class '$subClassName' has to be '@Serializable', and the base class '${baseClass.simpleName}' has to be sealed and '@Serializable'."
     )
 }
 

@@ -24,12 +24,13 @@ public abstract class TaggedEncoder<Tag : Any?> : Encoder, CompositeEncoder {
     protected abstract fun SerialDescriptor.getTag(index: Int): Tag
 
     override val serializersModule: SerializersModule
-        get() = EmptySerializersModule
+        get() = EmptySerializersModule()
 
     // ---- API ----
     protected open fun encodeTaggedValue(tag: Tag, value: Any): Unit =
         throw SerializationException("Non-serializable ${value::class} is not supported by ${this::class} encoder")
 
+    protected open fun encodeTaggedNonNullMark(tag: Tag) {}
     protected open fun encodeTaggedNull(tag: Tag): Unit = throw SerializationException("null is not supported")
     protected open fun encodeTaggedInt(tag: Tag, value: Int): Unit = encodeTaggedValue(tag, value)
     protected open fun encodeTaggedByte(tag: Tag, value: Byte): Unit = encodeTaggedValue(tag, value)
@@ -47,6 +48,12 @@ public abstract class TaggedEncoder<Tag : Any?> : Encoder, CompositeEncoder {
         ordinal: Int
     ): Unit = encodeTaggedValue(tag, ordinal)
 
+    protected open fun encodeTaggedInline(tag: Tag, inlineDescriptor: SerialDescriptor): Encoder =
+        this.apply { pushTag(tag) }
+
+    override fun encodeInline(descriptor: SerialDescriptor): Encoder =
+        encodeTaggedInline(popTag(), descriptor)
+
     // ---- Implementation of low-level API ----
 
     private fun encodeElement(desc: SerialDescriptor, index: Int): Boolean {
@@ -55,7 +62,7 @@ public abstract class TaggedEncoder<Tag : Any?> : Encoder, CompositeEncoder {
         return true
     }
 
-    final override fun encodeNotNullMark() {} // Does nothing, open because is not really required
+    open override fun encodeNotNullMark(): Unit = encodeTaggedNonNullMark(currentTag)
     open override fun encodeNull(): Unit = encodeTaggedNull(popTag())
     final override fun encodeBoolean(value: Boolean): Unit = encodeTaggedBoolean(popTag(), value)
     final override fun encodeByte(value: Byte): Unit = encodeTaggedByte(popTag(), value)
@@ -113,7 +120,14 @@ public abstract class TaggedEncoder<Tag : Any?> : Encoder, CompositeEncoder {
     final override fun encodeStringElement(descriptor: SerialDescriptor, index: Int, value: String): Unit =
         encodeTaggedString(descriptor.getTag(index), value)
 
-    final override fun <T : Any?> encodeSerializableElement(
+    final override fun encodeInlineElement(
+        descriptor: SerialDescriptor,
+        index: Int
+    ): Encoder {
+        return encodeTaggedInline(descriptor.getTag(index), descriptor.getElementDescriptor(index))
+    }
+
+    override fun <T : Any?> encodeSerializableElement(
         descriptor: SerialDescriptor,
         index: Int,
         serializer: SerializationStrategy<T>,
@@ -124,7 +138,7 @@ public abstract class TaggedEncoder<Tag : Any?> : Encoder, CompositeEncoder {
     }
 
     @OptIn(ExperimentalSerializationApi::class)
-    final override fun <T : Any> encodeNullableSerializableElement(
+    override fun <T : Any> encodeNullableSerializableElement(
         descriptor: SerialDescriptor,
         index: Int,
         serializer: SerializationStrategy<T>,
@@ -164,7 +178,7 @@ public abstract class NamedValueEncoder : TaggedEncoder<String>() {
 @InternalSerializationApi
 public abstract class TaggedDecoder<Tag : Any?> : Decoder, CompositeDecoder {
     override val serializersModule: SerializersModule
-        get() = EmptySerializersModule
+        get() = EmptySerializersModule()
 
     protected abstract fun SerialDescriptor.getTag(index: Int): Tag
 
@@ -187,11 +201,15 @@ public abstract class TaggedDecoder<Tag : Any?> : Decoder, CompositeDecoder {
     protected open fun decodeTaggedEnum(tag: Tag, enumDescriptor: SerialDescriptor): Int =
         decodeTaggedValue(tag) as Int
 
+    protected open fun decodeTaggedInline(tag: Tag, inlineDescriptor: SerialDescriptor): Decoder = this.apply { pushTag(tag) }
+
     protected open fun <T : Any?> decodeSerializableValue(deserializer: DeserializationStrategy<T>, previousValue: T?): T =
         decodeSerializableValue(deserializer)
 
-
     // ---- Implementation of low-level API ----
+
+    override fun decodeInline(descriptor: SerialDescriptor): Decoder =
+        decodeTaggedInline(popTag(), descriptor)
 
     // TODO this method should be overridden by any sane format that supports top-level nulls
     override fun decodeNotNullMark(): Boolean {
@@ -247,6 +265,11 @@ public abstract class TaggedDecoder<Tag : Any?> : Decoder, CompositeDecoder {
     final override fun decodeStringElement(descriptor: SerialDescriptor, index: Int): String =
         decodeTaggedString(descriptor.getTag(index))
 
+    final override fun decodeInlineElement(
+        descriptor: SerialDescriptor,
+        index: Int
+    ): Decoder = decodeTaggedInline(descriptor.getTag(index), descriptor.getElementDescriptor(index))
+
     final override fun <T : Any?> decodeSerializableElement(
         descriptor: SerialDescriptor,
         index: Int,
@@ -260,13 +283,11 @@ public abstract class TaggedDecoder<Tag : Any?> : Decoder, CompositeDecoder {
         index: Int,
         deserializer: DeserializationStrategy<T?>,
         previousValue: T?
-    ): T? =
-        tagBlock(descriptor.getTag(index)) {
-            if (decodeNotNullMark()) decodeSerializableValue(
-                deserializer,
-                previousValue
-            ) else decodeNull()
+    ): T? = tagBlock(descriptor.getTag(index)) {
+        decodeIfNullable(deserializer) {
+            decodeSerializableValue(deserializer, previousValue)
         }
+    }
 
     private fun <E> tagBlock(tag: Tag, block: () -> E): E {
         pushTag(tag)
@@ -278,7 +299,8 @@ public abstract class TaggedDecoder<Tag : Any?> : Decoder, CompositeDecoder {
         return r
     }
 
-    private val tagStack = arrayListOf<Tag>()
+    internal val tagStack: ArrayList<Tag> = arrayListOf()
+
     protected val currentTag: Tag
         get() = tagStack.last()
     protected val currentTagOrNull: Tag?
@@ -307,7 +329,13 @@ public abstract class NamedValueDecoder : TaggedDecoder<String>() {
     final override fun SerialDescriptor.getTag(index: Int): String = nested(elementName(this, index))
 
     protected fun nested(nestedName: String): String = composeName(currentTagOrNull ?: "", nestedName)
-    protected open fun elementName(desc: SerialDescriptor, index: Int): String = desc.getElementName(index)
+    protected open fun elementName(descriptor: SerialDescriptor, index: Int): String = descriptor.getElementName(index)
     protected open fun composeName(parentName: String, childName: String): String =
         if (parentName.isEmpty()) childName else "$parentName.$childName"
+
+
+    protected fun renderTagStack(): String {
+        return if (tagStack.isEmpty()) "$"
+        else tagStack.joinToString(separator = ".", prefix = "$.")
+    }
 }

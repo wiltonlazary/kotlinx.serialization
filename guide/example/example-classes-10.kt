@@ -5,9 +5,23 @@ import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
 @Serializable
-class Project(val name: String, val renamedTo: String? = null)
+@OptIn(ExperimentalSerializationApi::class) // EncodeDefault is an experimental annotation for now
+data class Project(
+    val name: String,
+    @EncodeDefault val language: String = "Kotlin"
+)
+
+
+@Serializable
+@OptIn(ExperimentalSerializationApi::class) // EncodeDefault is an experimental annotation for now
+data class User(
+    val name: String,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val projects: List<Project> = emptyList()
+)
 
 fun main() {
-    val data = Project("kotlinx.serialization")
-    println(Json.encodeToString(data))
+    val userA = User("Alice", listOf(Project("kotlinx.serialization")))
+    val userB = User("Bob")
+    println(Json.encodeToString(userA))
+    println(Json.encodeToString(userB))
 }

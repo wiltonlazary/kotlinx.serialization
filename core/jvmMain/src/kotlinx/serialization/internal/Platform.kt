@@ -1,12 +1,15 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2022 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization.internal
 
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.*
 import java.lang.reflect.*
 import kotlin.reflect.*
+import kotlin.time.*
+import kotlin.uuid.*
 
 @Suppress("NOTHING_TO_INLINE")
 internal actual inline fun <T> Array<T>.getChecked(index: Int): T {
@@ -18,7 +21,8 @@ internal actual inline fun BooleanArray.getChecked(index: Int): Boolean {
     return get(index)
 }
 
-@Suppress("UNCHECKED_CAST")
+internal actual fun <T: Any> KClass<T>.isInterface(): Boolean = java.isInterface
+
 internal actual fun <T : Any> KClass<T>.compiledSerializerImpl(): KSerializer<T>? =
     this.constructSerializerForGivenTypeArgs()
 
@@ -28,31 +32,57 @@ internal actual fun <T : Any, E : T?> ArrayList<E>.toNativeArrayImpl(eClass: KCl
 
 internal actual fun KClass<*>.platformSpecificSerializerNotRegistered(): Nothing = serializerNotRegistered()
 
-@Suppress("UNCHECKED_CAST")
+internal fun Class<*>.serializerNotRegistered(): Nothing {
+    throw SerializationException(this.kotlin.notRegisteredMessage())
+}
+
 internal actual fun <T : Any> KClass<T>.constructSerializerForGivenTypeArgs(vararg args: KSerializer<Any?>): KSerializer<T>? {
-    val jClass = this.java
-    if (jClass.isEnum && jClass.isNotAnnotated()) {
-        return jClass.createEnumSerializer()
-    }
-    if (jClass.isInterface) {
-        return interfaceSerializer()
+    return java.constructSerializerForGivenTypeArgs(*args)
+}
+
+internal fun <T: Any> Class<T>.constructSerializerForGivenTypeArgs(vararg args: KSerializer<Any?>): KSerializer<T>? {
+    if (isEnum && isNotAnnotated()) {
+        return createEnumSerializer()
     }
     // Search for serializer defined on companion object.
-    val serializer = invokeSerializerOnCompanion<T>(jClass, *args)
+    val serializer = invokeSerializerOnDefaultCompanion<T>(this, *args)
     if (serializer != null) return serializer
     // Check whether it's serializable object
-    findObjectSerializer(jClass)?.let { return it }
+    findObjectSerializer()?.let { return it }
     // Search for default serializer if no serializer is defined in companion object.
     // It is required for named companions
-    val fromNamedCompanion = try {
-        jClass.declaredClasses.singleOrNull { it.simpleName == ("\$serializer") }
+    val fromNamedCompanion = findInNamedCompanion(*args)
+    if (fromNamedCompanion != null) return fromNamedCompanion
+    // Check for polymorphic
+    return if (isPolymorphicSerializer()) {
+        PolymorphicSerializer(this.kotlin)
+    } else {
+        null
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun <T: Any> Class<T>.findInNamedCompanion(vararg args: KSerializer<Any?>): KSerializer<T>? {
+    val namedCompanion = findNamedCompanionByAnnotation()
+    if (namedCompanion != null) {
+        invokeSerializerOnCompanion<T>(namedCompanion, *args)?.let { return it }
+    }
+
+    // fallback strategy for old compiler - try to locate plugin-generated singleton (without type parameters) serializer
+    return try {
+        declaredClasses.singleOrNull { it.simpleName == ("\$serializer") }
             ?.getField("INSTANCE")?.get(null) as? KSerializer<T>
     } catch (e: NoSuchFieldException) {
         null
     }
-    if (fromNamedCompanion != null) return fromNamedCompanion
-    // Check for polymorphic
-    return polymorphicSerializer()
+}
+
+private fun <T: Any> Class<T>.findNamedCompanionByAnnotation(): Any? {
+    val companionClass = declaredClasses.firstOrNull { clazz ->
+        clazz.getAnnotation(NamedCompanion::class.java) != null
+    } ?: return null
+
+    return companionOrNull(companionClass.simpleName)
 }
 
 private fun <T: Any> Class<T>.isNotAnnotated(): Boolean {
@@ -63,38 +93,28 @@ private fun <T: Any> Class<T>.isNotAnnotated(): Boolean {
             getAnnotation(Polymorphic::class.java) == null
 }
 
-private fun <T: Any> KClass<T>.polymorphicSerializer(): KSerializer<T>? {
+private fun <T: Any> Class<T>.isPolymorphicSerializer(): Boolean {
     /*
      * Last resort: check for @Polymorphic or Serializable(with = PolymorphicSerializer::class)
      * annotations.
      */
-    val jClass = java
-    if (jClass.getAnnotation(Polymorphic::class.java) != null) {
-        return PolymorphicSerializer(this)
+    if (getAnnotation(Polymorphic::class.java) != null) {
+        return true
     }
-    val serializable = jClass.getAnnotation(Serializable::class.java)
+    val serializable = getAnnotation(Serializable::class.java)
     if (serializable != null && serializable.with == PolymorphicSerializer::class) {
-        return PolymorphicSerializer(this)
+        return true
     }
-    return null
+    return false
 }
 
-private fun <T: Any> KClass<T>.interfaceSerializer(): KSerializer<T>? {
-    /*
-     * Interfaces are @Polymorphic by default.
-     * Check if it has no annotations or `@Serializable(with = PolymorphicSerializer::class)`,
-     * otherwise bailout.
-     */
-    val serializable = java.getAnnotation(Serializable::class.java)
-    if (serializable == null || serializable.with == PolymorphicSerializer::class) {
-        return PolymorphicSerializer(this)
-    }
-    return null
+private fun <T : Any> invokeSerializerOnDefaultCompanion(jClass: Class<*>, vararg args: KSerializer<Any?>): KSerializer<T>? {
+    val companion = jClass.companionOrNull("Companion") ?: return null
+    return invokeSerializerOnCompanion(companion, *args)
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <T : Any> invokeSerializerOnCompanion(jClass: Class<*>, vararg args: KSerializer<Any?>): KSerializer<T>? {
-    val companion = jClass.companionOrNull() ?: return null
+private fun <T : Any> invokeSerializerOnCompanion(companion: Any, vararg args: KSerializer<Any?>): KSerializer<T>? {
     return try {
         val types = if (args.isEmpty()) emptyArray() else Array(args.size) { KSerializer::class.java }
         companion.javaClass.getDeclaredMethod("serializer", *types)
@@ -107,9 +127,9 @@ private fun <T : Any> invokeSerializerOnCompanion(jClass: Class<*>, vararg args:
     }
 }
 
-private fun Class<*>.companionOrNull() =
+private fun Class<*>.companionOrNull(companionName: String) =
     try {
-        val companion = getDeclaredField("Companion")
+        val companion = getDeclaredField(companionName)
         companion.isAccessible = true
         companion.get(null)
     } catch (e: Throwable) {
@@ -117,38 +137,80 @@ private fun Class<*>.companionOrNull() =
     }
 
 @Suppress("UNCHECKED_CAST")
-private fun <T : Any> Class<T>.createEnumSerializer(): KSerializer<T>? {
+private fun <T : Any> Class<T>.createEnumSerializer(): KSerializer<T> {
     val constants = enumConstants
-    return EnumSerializer(canonicalName, constants as Array<out Enum<*>>) as? KSerializer<T>
+    return EnumSerializer(canonicalName, constants as Array<out Enum<*>>) as KSerializer<T>
 }
 
-private fun <T : Any> findObjectSerializer(jClass: Class<T>): KSerializer<T>? {
+private fun <T : Any> Class<T>.findObjectSerializer(): KSerializer<T>? {
+    // Special case to avoid IllegalAccessException on Java11+ (#2449)
+    // There are no serializable objects in the stdlib anyway.
+    if (this.canonicalName?.let { it.startsWith("java.") || it.startsWith("kotlin.") } != false) return null
     // Check it is an object without using kotlin-reflect
     val field =
-        jClass.declaredFields.singleOrNull { it.name == "INSTANCE" && it.type == jClass && Modifier.isStatic(it.modifiers) }
+        declaredFields.singleOrNull { it.name == "INSTANCE" && it.type == this && Modifier.isStatic(it.modifiers) }
             ?: return null
     // Retrieve its instance and call serializer()
     val instance = field.get(null)
     val method =
-        jClass.methods.singleOrNull { it.name == "serializer" && it.parameterTypes.isEmpty() && it.returnType == KSerializer::class.java }
+        methods.singleOrNull { it.name == "serializer" && it.parameterTypes.isEmpty() && it.returnType == KSerializer::class.java }
             ?: return null
     val result = method.invoke(instance)
     @Suppress("UNCHECKED_CAST")
     return result as? KSerializer<T>
 }
 
-/**
- * Checks if an [this@isInstanceOf] is an instance of a given [kclass].
- *
- * This check is a replacement for [KClass.isInstance] because
- * on JVM it requires kotlin-reflect.jar in classpath
- * (see https://youtrack.jetbrains.com/issue/KT-14720).
- *
- * On JS and Native, this function delegates to aforementioned
- * [KClass.isInstance] since it is supported there out-of-the box;
- * on JVM, it falls back to java.lang.Class.isInstance, which causes
- * difference when applied to function types with big arity.
- */
-internal actual fun Any.isInstanceOf(kclass: KClass<*>): Boolean = kclass.javaObjectType.isInstance(this)
-
 internal actual fun isReferenceArray(rootClass: KClass<Any>): Boolean = rootClass.java.isArray
+
+@OptIn(ExperimentalSerializationApi::class)
+internal actual fun initBuiltins(): Map<KClass<*>, KSerializer<*>> = buildMap {
+    // Standard classes are always present
+    put(String::class, String.serializer())
+    put(Char::class, Char.serializer())
+    put(CharArray::class, CharArraySerializer())
+    put(Double::class, Double.serializer())
+    put(DoubleArray::class, DoubleArraySerializer())
+    put(Float::class, Float.serializer())
+    put(FloatArray::class, FloatArraySerializer())
+    put(Long::class, Long.serializer())
+    put(LongArray::class, LongArraySerializer())
+    put(ULong::class, ULong.serializer())
+    put(Int::class, Int.serializer())
+    put(IntArray::class, IntArraySerializer())
+    put(UInt::class, UInt.serializer())
+    put(Short::class, Short.serializer())
+    put(ShortArray::class, ShortArraySerializer())
+    put(UShort::class, UShort.serializer())
+    put(Byte::class, Byte.serializer())
+    put(ByteArray::class, ByteArraySerializer())
+    put(UByte::class, UByte.serializer())
+    put(Boolean::class, Boolean.serializer())
+    put(BooleanArray::class, BooleanArraySerializer())
+    put(Unit::class, Unit.serializer())
+    put(Nothing::class, NothingSerializer())
+
+    // Duration is a stable class, but may be missing in very old stdlibs
+    loadSafe { put(Duration::class, Duration.serializer()) }
+
+    // Experimental types that may be missing
+    @OptIn(ExperimentalUnsignedTypes::class) run {
+        loadSafe { put(ULongArray::class, ULongArraySerializer()) }
+        loadSafe { put(UIntArray::class, UIntArraySerializer()) }
+        loadSafe { put(UShortArray::class, UShortArraySerializer()) }
+        loadSafe { put(UByteArray::class, UByteArraySerializer()) }
+    }
+    @OptIn(ExperimentalUuidApi::class)
+    loadSafe { put(Uuid::class, Uuid.serializer()) }
+
+    @OptIn(ExperimentalTime::class)
+    loadSafe { put(Instant::class, Instant.serializer()) }
+}
+
+// Reference classes in [block] ignoring any exceptions related to class loading
+private inline fun loadSafe(block: () -> Unit) {
+    try {
+        block()
+    } catch (_: NoClassDefFoundError) {
+    } catch (_: ClassNotFoundException) {
+    }
+}

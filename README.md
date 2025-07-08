@@ -1,9 +1,13 @@
 # Kotlin multiplatform / multi-format reflectionless serialization
 
-[![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
+[![Kotlin Stable](https://kotl.in/badges/stable.svg)](https://kotlinlang.org/docs/components-stability.html)
+[![JetBrains official project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
 [![GitHub license](https://img.shields.io/badge/license-Apache%20License%202.0-blue.svg?style=flat)](http://www.apache.org/licenses/LICENSE-2.0)
 [![TeamCity build](https://img.shields.io/teamcity/http/teamcity.jetbrains.com/s/KotlinTools_KotlinxSerialization_Ko.svg)](https://teamcity.jetbrains.com/viewType.html?buildTypeId=KotlinTools_KotlinxSerialization_Ko&guest=1)
-[![Download](https://api.bintray.com/packages/kotlin/kotlinx/kotlinx.serialization.runtime/images/download.svg?version=1.0.0) ](https://bintray.com/kotlin/kotlinx/kotlinx.serialization.runtime/1.0.0)
+[![Kotlin](https://img.shields.io/badge/kotlin-2.2.0-blue.svg?logo=kotlin)](http://kotlinlang.org)
+[![Maven Central](https://img.shields.io/maven-central/v/org.jetbrains.kotlinx/kotlinx-serialization-core/1.9.0)](https://central.sonatype.com/artifact/org.jetbrains.kotlinx/kotlinx-serialization-core/1.9.0)
+[![KDoc link](https://img.shields.io/badge/API_reference-KDoc-blue)](https://kotlinlang.org/api/kotlinx.serialization/)
+[![Slack channel](https://img.shields.io/badge/chat-slack-blue.svg?logo=slack)](https://kotlinlang.slack.com/messages/serialization/)
 
 Kotlin serialization consists of a compiler plugin, that generates visitor code for serializable classes,
  runtime library with core serialization API and support libraries with various serialization formats.
@@ -19,14 +23,20 @@ Kotlin serialization consists of a compiler plugin, that generates visitor code 
 * [Introduction and references](#introduction-and-references)
 * [Setup](#setup)
   * [Gradle](#gradle)
-    * [Using the `plugins` block](#using-the-plugins-block)
-    * [Using `apply plugin` (the old way)](#using-apply-plugin-the-old-way)
-    * [Dependency on the JSON library](#dependency-on-the-json-library)
+    * [1) Setting up the serialization plugin](#1-setting-up-the-serialization-plugin)
+    * [2) Dependency on the JSON library](#2-dependency-on-the-json-library)
   * [Android](#android)
   * [Multiplatform (Common, JS, Native)](#multiplatform-common-js-native)
   * [Maven](#maven)
+  * [Bazel](#bazel)
 
 <!--- END -->
+
+* **Additional links**
+  * [Kotlin Serialization Guide](docs/serialization-guide.md)
+  * [Full API reference](https://kotlinlang.org/api/kotlinx.serialization/)
+  * [Submitting issues and PRs](CONTRIBUTING.md)
+  * [Building this library](docs/building.md)
 
 ## Introduction and references
 
@@ -61,28 +71,31 @@ Project(name=kotlinx.serialization, language=Kotlin)
 
 **Read the [Kotlin Serialization Guide](docs/serialization-guide.md) for all details.**
 
-You can find auto-generated documentation website on [GitHub Pages](https://kotlin.github.io/kotlinx.serialization/).
+You can find auto-generated documentation website on [kotlinlang.org](https://kotlinlang.org/api/kotlinx.serialization/).
 
 ## Setup
 
-Kotlin serialization plugin is shipped with the Kotlin compiler distribution, and the IDEA plugin is bundled into the Kotlin plugin.
+[New versions](https://plugins.gradle.org/plugin/org.jetbrains.kotlin.plugin.serialization) of the serialization plugin are released in tandem with each new Kotlin compiler version.
 
-Using Kotlin Serialization requires Kotlin compiler `1.4.0` or higher.
 Make sure you have the corresponding Kotlin plugin installed in the IDE, no additional plugins for IDE are required.
 
 ### Gradle
 
-#### Using the `plugins` block
+To set up kotlinx.serialization, you have to do two things:
+1) Add the **[serialization plugin](#1-setting-up-the-serialization-plugin)**.
+2) Add the **[serialization library dependency](#2-dependency-on-the-json-library)**.
 
-You can set up the serialization plugin with the Kotlin plugin using 
+#### 1) Setting up the serialization plugin
+
+You can set up the serialization plugin with the Kotlin plugin using the
 [Gradle plugins DSL](https://docs.gradle.org/current/userguide/plugins.html#sec:plugins_block):
 
 Kotlin DSL:
 
 ```kotlin
 plugins {
-    kotlin("jvm") version "1.4.10" // or kotlin("multiplatform") or any other kotlin plugin
-    kotlin("plugin.serialization") version "1.4.10"
+    kotlin("jvm") version "2.2.0" // or kotlin("multiplatform") or any other kotlin plugin
+    kotlin("plugin.serialization") version "2.2.0"
 }
 ```       
 
@@ -90,14 +103,15 @@ Groovy DSL:
 
 ```gradle
 plugins {
-    id 'org.jetbrains.kotlin.multiplatform' version '1.4.10'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '1.4.10'
+    id 'org.jetbrains.kotlin.multiplatform' version '2.2.0'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.2.0'
 }
 ```
 
-> Kotlin versions before 1.4.0 are not supported by the stable release of Kotlin serialization
+> Kotlin versions before 1.4.0 are not supported by the stable release of Kotlin serialization.
 
-#### Using `apply plugin` (the old way)
+<details>
+  <summary>Using <code>apply plugin</code> (the old way)</summary>
 
 First, you have to add the serialization plugin to your classpath as the other [compiler plugins](https://kotlinlang.org/docs/reference/compiler-plugins.html):
 
@@ -105,10 +119,10 @@ Kotlin DSL:
 
 ```kotlin
 buildscript {
-    repositories { jcenter() }
+    repositories { mavenCentral() }
 
     dependencies {
-        val kotlinVersion = "1.4.10"
+        val kotlinVersion = "2.2.0"
         classpath(kotlin("gradle-plugin", version = kotlinVersion))
         classpath(kotlin("serialization", version = kotlinVersion))
     }
@@ -119,8 +133,8 @@ Groovy DSL:
 
 ```gradle
 buildscript {
-    ext.kotlin_version = '1.4.10'
-    repositories { jcenter() }
+    ext.kotlin_version = '2.2.0'
+    repositories { mavenCentral() }
 
     dependencies {
         classpath "org.jetbrains.kotlin:kotlin-serialization:$kotlin_version"
@@ -134,21 +148,22 @@ Then you can `apply plugin` (example in Groovy):
 apply plugin: 'kotlin' // or 'kotlin-multiplatform' for multiplatform projects
 apply plugin: 'kotlinx-serialization'
 ```
+</details>
 
-#### Dependency on the JSON library
+#### 2) Dependency on the JSON library
 
-After setting up the plugin one way or another, you have to add a dependency on the serialization library. Note that while the plugin has version the same as the compiler one, runtime library has different coordinates, repository and versioning.
+After setting up the plugin, you have to add a dependency on the serialization library.
+Note that while the plugin has version the same as the compiler one, runtime library has different coordinates, repository and versioning.
 
 Kotlin DSL:
 
 ```kotlin
 repositories {
-    // Artifacts are also available on Maven Central
-    jcenter()
+    mavenCentral()
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 }
 ```
 
@@ -156,45 +171,79 @@ Groovy DSL:
 
 ```gradle
 repositories {
-    // Artifacts are also available on Maven Central
-    jcenter()
+    mavenCentral()
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.0.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0"
 }
 ```
 
->We also provide `kotlinx-serialization-core` artifact that contains all serialization API but does not have bundled serialization format with it
+>We also provide `kotlinx-serialization-core` artifact that contains all serialization API but does not have a bundled serialization format with it
 
 ### Android
 
-Library should work on Android "as is". If you're using proguard, you need
-to add this to your `proguard-rules.pro`:
+By default, proguard rules are supplied with the library.
+[These rules](rules/common.pro) keep serializers for _all_ serializable classes that are retained after shrinking,
+so you don't need additional setup.
+
+**However, these rules do not affect serializable classes if they have named companion objects.**
+
+If you want to serialize classes with named companion objects, you need to add and edit rules below to your `proguard-rules.pro` configuration. 
+
+Note that the rules for R8 differ depending on the [compatibility mode](https://r8.googlesource.com/r8/+/refs/heads/master/compatibility-faq.md) used.
+
+<details>
+<summary>Example of named companion rules for ProGuard and R8 compatibility mode</summary>
 
 ```proguard
--keepattributes *Annotation*, InnerClasses
--dontnote kotlinx.serialization.AnnotationsKt # core serialization annotations
+# Serializer for classes with named companion objects are retrieved using `getDeclaredClasses`.
+# If you have any, replace classes with those containing named companion objects.
+-keepattributes InnerClasses # Needed for `getDeclaredClasses`.
 
-# kotlinx-serialization-json specific. Add this if you have java.lang.NoClassDefFoundError kotlinx.serialization.json.JsonObjectSerializer
--keepclassmembers class kotlinx.serialization.json.** {
-    *** Companion;
+-if @kotlinx.serialization.Serializable class
+com.example.myapplication.HasNamedCompanion, # <-- List serializable classes with named companions.
+com.example.myapplication.HasNamedCompanion2
+{
+    static **$* *;
 }
--keepclasseswithmembers class kotlinx.serialization.json.** {
-    kotlinx.serialization.KSerializer serializer(...);
-}
-
-# Change here com.yourcompany.yourpackage
--keep,includedescriptorclasses class com.yourcompany.yourpackage.**$$serializer { *; } # <-- change package name to your app's
--keepclassmembers class com.yourcompany.yourpackage.** { # <-- change package name to your app's
-    *** Companion;
-}
--keepclasseswithmembers class com.yourcompany.yourpackage.** { # <-- change package name to your app's
-    kotlinx.serialization.KSerializer serializer(...);
+-keepnames class <1>$$serializer { # -keepnames suffices; class is kept when serializer() is kept.
+    static <1>$$serializer INSTANCE;
 }
 ```
+</details>
 
-You may also want to keep all custom serializers you've defined.
+
+<details>
+<summary>Example of named companion rules for R8 full mode</summary>
+
+```proguard
+# Serializer for classes with named companion objects are retrieved using `getDeclaredClasses`.
+# If you have any, replace classes with those containing named companion objects.
+-keepattributes InnerClasses # Needed for `getDeclaredClasses`.
+
+-if @kotlinx.serialization.Serializable class
+com.example.myapplication.HasNamedCompanion, # <-- List serializable classes with named companions.
+com.example.myapplication.HasNamedCompanion2
+{
+    static **$* *;
+}
+-keepnames class <1>$$serializer { # -keepnames suffices; class is kept when serializer() is kept.
+    static <1>$$serializer INSTANCE;
+}
+
+# Keep both serializer and serializable classes to save the attribute InnerClasses
+-keepclasseswithmembers, allowshrinking, allowobfuscation, allowaccessmodification class
+com.example.myapplication.HasNamedCompanion, # <-- List serializable classes with named companions.
+com.example.myapplication.HasNamedCompanion2
+{
+    *;
+}
+```
+</details>
+
+In case you want to exclude serializable classes that are used, but never serialized at runtime,
+you will need to write custom rules with narrower [class specifications](https://www.guardsquare.com/manual/configuration/usage).
 
 ### Multiplatform (Common, JS, Native)
 
@@ -216,12 +265,10 @@ Ensure the proper version of Kotlin and serialization version:
 
 ```xml
 <properties>
-    <kotlin.version>1.4.10</kotlin.version>
-    <serialization.version>1.0.0</serialization.version>
+    <kotlin.version>2.2.0</kotlin.version>
+    <serialization.version>1.9.0</serialization.version>
 </properties>
 ```
-
-You can also use JCenter or `https://kotlin.bintray.com/kotlinx` Bintray repository.
 
 Add serialization plugin to Kotlin compiler plugin:
 
@@ -267,3 +314,9 @@ Add dependency on serialization runtime library:
     <version>${serialization.version}</version>
 </dependency>
 ```
+
+### Bazel
+
+To setup the Kotlin compiler plugin for Bazel, follow [the
+example](https://github.com/bazelbuild/rules_kotlin/tree/master/examples/plugin/src/serialization)
+from the `rules_kotlin` repository.

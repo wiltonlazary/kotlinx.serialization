@@ -5,9 +5,9 @@
 package kotlinx.serialization.encoding
 
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.modules.*
-import kotlinx.serialization.builtins.*
 
 /**
  * Decoder is a core deserialization primitive that encapsulates the knowledge of the underlying
@@ -52,10 +52,16 @@ import kotlinx.serialization.builtins.*
  * (`{` or `[`, depending on the descriptor kind), returning the [CompositeDecoder] that is aware of colon separator,
  * that should be read after each key-value pair, whilst [CompositeDecoder.endStructure] will parse a closing bracket.
  *
- * ### Exception guarantees.
- * For the regular exceptions, such as invalid input, missing control symbols or attributes and unknown symbols,
+ * ### Exception guarantees
+ *
+ * For the regular exceptions, such as invalid input, missing control symbols or attributes, and unknown symbols,
  * [SerializationException] can be thrown by any decoder methods. It is recommended to declare a format-specific
  * subclass of [SerializationException] and throw it.
+ *
+ * ### Exception safety
+ *
+ * In general, catching [SerializationException] from any of `decode*` methods is not allowed and produces unspecified behavior.
+ * After thrown exception, the current decoder is left in an arbitrary state, no longer suitable for further decoding.
  *
  * ### Format encapsulation
  *
@@ -78,11 +84,6 @@ import kotlinx.serialization.builtins.*
  *    }
  * }
  * ```
- *
- * ### Exception safety
- *
- * In general, catching [SerializationException] from any of `decode*` methods is not allowed and produces unspecified behaviour.
- * After thrown exception, current decoder is left in an arbitrary state, no longer suitable for further decoding.
  *
  * This deserializer does not know anything about the underlying data and will work with any properly-implemented decoder.
  * JSON, for example, parses an opening bracket `{` during the `beginStructure` call, checks that the next key
@@ -108,7 +109,7 @@ import kotlinx.serialization.builtins.*
  *
  * ### Not stable for inheritance
  *
- * `Decoder` interface is not stable for inheritance in 3rd party libraries, as new methods
+ * `Decoder` interface is not stable for inheritance in 3rd-party libraries, as new methods
  * might be added to this interface or contracts of the existing methods can be changed.
  */
 public interface Decoder {
@@ -137,6 +138,9 @@ public interface Decoder {
 
     /**
      * Decodes the `null` value and returns it.
+     *
+     * It is expected that `decodeNotNullMark` was called
+     * prior to `decodeNull` invocation and the case when it returned `true` was handled.
      */
     @ExperimentalSerializationApi
     public fun decodeNull(): Nothing?
@@ -208,6 +212,26 @@ public interface Decoder {
     public fun decodeEnum(enumDescriptor: SerialDescriptor): Int
 
     /**
+     * Returns [Decoder] for decoding an underlying type of a value class in an inline manner.
+     * [descriptor] describes a target value class.
+     *
+     * Namely, for the `@Serializable @JvmInline value class MyInt(val my: Int)`, the following sequence is used:
+     * ```
+     * thisDecoder.decodeInline(MyInt.serializer().descriptor).decodeInt()
+     * ```
+     *
+     * Current decoder may return any other instance of [Decoder] class, depending on the provided [descriptor].
+     * For example, when this function is called on `Json` decoder with
+     * `UInt.serializer().descriptor`, the returned decoder is able to decode unsigned integers.
+     *
+     * Note that this function returns [Decoder] instead of the [CompositeDecoder]
+     * because value classes always have the single property.
+     *
+     * Calling [Decoder.beginStructure] on returned instance leads to an unspecified behavior and, in general, is prohibited.
+     */
+    public fun decodeInline(descriptor: SerialDescriptor): Decoder
+
+    /**
      * Decodes the beginning of the nested structure in a serialized form
      * and returns [CompositeDecoder] responsible for decoding this very structure.
      *
@@ -227,8 +251,8 @@ public interface Decoder {
 
     /**
      * Decodes the value of type [T] by delegating the decoding process to the given [deserializer].
-     * For example, `decodeInt` call us equivalent to delegating integer decoding to [Int.serializer][Int.Companion.serializer]:
-     * `decodeSerializableValue(IntSerializer)`
+     * For example, `decodeInt` call is equivalent to delegating integer decoding to [Int.serializer][Int.Companion.serializer]:
+     * `decodeSerializableValue(Int.serializer())`
      */
     public fun <T : Any?> decodeSerializableValue(deserializer: DeserializationStrategy<T>): T =
         deserializer.deserialize(this)
@@ -237,10 +261,15 @@ public interface Decoder {
      * Decodes the nullable value of type [T] by delegating the decoding process to the given [deserializer].
      */
     @ExperimentalSerializationApi
-    public fun <T : Any> decodeNullableSerializableValue(deserializer: DeserializationStrategy<T?>): T? {
-        val isNullabilitySupported = deserializer.descriptor.isNullable
-        return if (isNullabilitySupported || decodeNotNullMark()) decodeSerializableValue(deserializer) else decodeNull()
+    public fun <T : Any> decodeNullableSerializableValue(deserializer: DeserializationStrategy<T?>): T? = decodeIfNullable(deserializer) {
+        decodeSerializableValue(deserializer)
     }
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+internal inline fun <T : Any> Decoder.decodeIfNullable(deserializer: DeserializationStrategy<T?>, block: () -> T?): T? {
+    val isNullabilitySupported = deserializer.descriptor.isNullable
+    return if (isNullabilitySupported || decodeNotNullMark()) block() else decodeNull()
 }
 
 /**
@@ -330,7 +359,7 @@ public interface CompositeDecoder {
      * Sequential decoding is a performance optimization for formats with strictly ordered schema,
      * usually binary ones. Regular formats such as JSON or ProtoBuf cannot use this optimization,
      * because e.g. in the latter example, the same data can be represented both as
-     * `{"i": 1, "d": 1.0}`"` and `{"d": 1.0, "i": 1}` (thus, unordered).
+     * `{"i": 1, "d": 1.0}` and `{"d": 1.0, "i": 1}` (thus, unordered).
      */
     @ExperimentalSerializationApi
     public fun decodeSequentially(): Boolean = false
@@ -385,6 +414,8 @@ public interface CompositeDecoder {
      *     return descriptor.getElementIndex(nextKey) // getElementIndex can return UNKNOWN_NAME
      * }
      * ```
+     *
+     * If [decodeSequentially] returns `true`, the caller might skip calling this method.
      */
     public fun decodeElementIndex(descriptor: SerialDescriptor): Int
 
@@ -459,6 +490,39 @@ public interface CompositeDecoder {
      */
     public fun decodeStringElement(descriptor: SerialDescriptor, index: Int): String
 
+    /**
+     * Returns [Decoder] for decoding an underlying type of a value class in an inline manner.
+     * Serializable value class is described by the [child descriptor][SerialDescriptor.getElementDescriptor]
+     * of given [descriptor] at [index].
+     *
+     * Namely, for the `@Serializable @JvmInline value class MyInt(val my: Int)`,
+     * and `@Serializable class MyData(val myInt: MyInt)` the following sequence is used:
+     * ```
+     * thisDecoder.decodeInlineElement(MyData.serializer().descriptor, 0).decodeInt()
+     * ```
+     *
+     * This method provides an opportunity for the optimization to avoid boxing of a carried value
+     * and its invocation should be equivalent to the following:
+     * ```
+     * thisDecoder.decodeSerializableElement(MyData.serializer.descriptor, 0, MyInt.serializer())
+     * ```
+     *
+     * Current decoder may return any other instance of [Decoder] class, depending on the provided descriptor.
+     * For example, when this function is called on `Json` decoder with descriptor that has
+     * `UInt.serializer().descriptor` at the given [index], the returned decoder is able
+     * to decode unsigned integers.
+     *
+     * Note that this function returns [Decoder] instead of the [CompositeDecoder]
+     * because value classes always have the single property.
+     * Calling [Decoder.beginStructure] on returned instance leads to an unspecified behavior and, in general, is prohibited.
+     *
+     * @see Decoder.decodeInline
+     * @see SerialDescriptor.getElementDescriptor
+     */
+    public fun decodeInlineElement(
+        descriptor: SerialDescriptor,
+        index: Int
+    ): Decoder
 
     /**
      * Decodes value of the type [T] with the given [deserializer].
@@ -495,25 +559,6 @@ public interface CompositeDecoder {
         deserializer: DeserializationStrategy<T?>,
         previousValue: T? = null
     ): T?
-
-    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "DeprecatedCallableAddReplaceWith")
-    @kotlin.internal.LowPriorityInOverloadResolution
-    @Deprecated(decodeMethodDeprecated, level = DeprecationLevel.HIDDEN)
-    public fun <T : Any?> decodeSerializableElement(
-        descriptor: SerialDescriptor,
-        i: Int, // renamed from index to be called even with LowPriority
-        deserializer: DeserializationStrategy<T>
-    ): T = decodeSerializableElement(descriptor, i, deserializer, null)
-
-    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE", "DeprecatedCallableAddReplaceWith")
-    @kotlin.internal.LowPriorityInOverloadResolution
-    @Deprecated(decodeMethodDeprecated, level = DeprecationLevel.HIDDEN)
-    @OptIn(ExperimentalSerializationApi::class)
-    public fun <T : Any> decodeNullableSerializableElement(
-        descriptor: SerialDescriptor,
-        i: Int, // renamed from index to be called even with LowPriority
-        deserializer: DeserializationStrategy<T?>
-    ): T? = decodeNullableSerializableElement(descriptor, i, deserializer, null)
 }
 
 /**
@@ -521,15 +566,10 @@ public interface CompositeDecoder {
  */
 public inline fun <T> Decoder.decodeStructure(
     descriptor: SerialDescriptor,
-    block: CompositeDecoder.() -> T
+    crossinline block: CompositeDecoder.() -> T
 ): T {
     val composite = beginStructure(descriptor)
-    try {
-        return composite.block()
-    } finally {
-        composite.endStructure(descriptor)
-    }
+    val result = composite.block()
+    composite.endStructure(descriptor)
+    return result
 }
-
-private const val decodeMethodDeprecated = "Please migrate to decodeElement method which accepts old value." +
-        "Feel free to ignore it if your format does not support updates."

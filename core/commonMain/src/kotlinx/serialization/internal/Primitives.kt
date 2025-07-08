@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 @file:Suppress("FunctionName")
@@ -11,30 +11,13 @@ import kotlinx.serialization.*
 import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
-import kotlin.native.concurrent.*
 import kotlin.reflect.*
+import kotlin.time.Duration
+import kotlin.uuid.*
 
-@SharedImmutable
-private val BUILTIN_SERIALIZERS = mapOf(
-    String::class to String.serializer(),
-    Char::class to Char.serializer(),
-    CharArray::class to CharArraySerializer(),
-    Double::class to Double.serializer(),
-    DoubleArray::class to DoubleArraySerializer(),
-    Float::class to Float.serializer(),
-    FloatArray::class to FloatArraySerializer(),
-    Long::class to Long.serializer(),
-    LongArray::class to LongArraySerializer(),
-    Int::class to Int.serializer(),
-    IntArray::class to IntArraySerializer(),
-    Short::class to Short.serializer(),
-    ShortArray::class to ShortArraySerializer(),
-    Byte::class to Byte.serializer(),
-    ByteArray::class to ByteArraySerializer(),
-    Boolean::class to Boolean.serializer(),
-    BooleanArray::class to BooleanArraySerializer(),
-    Unit::class to Unit.serializer()
-)
+private val BUILTIN_SERIALIZERS = initBuiltins()
+
+internal expect fun initBuiltins(): Map<KClass<*>, KSerializer<*>>
 
 internal class PrimitiveSerialDescriptor(
     override val serialName: String,
@@ -47,28 +30,36 @@ internal class PrimitiveSerialDescriptor(
     override fun getElementDescriptor(index: Int): SerialDescriptor = error()
     override fun getElementAnnotations(index: Int): List<Annotation> = error()
     override fun toString(): String = "PrimitiveDescriptor($serialName)"
-    private fun error(): Nothing = throw IllegalStateException("Primitive descriptor does not have elements")
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PrimitiveSerialDescriptor) return false
+        if (serialName == other.serialName && kind == other.kind) return true
+        return false
+    }
+    override fun hashCode() = serialName.hashCode() + 31 * kind.hashCode()
+    private fun error(): Nothing = throw IllegalStateException("Primitive descriptor $serialName does not have elements")
 }
 
 internal fun PrimitiveDescriptorSafe(serialName: String, kind: PrimitiveKind): SerialDescriptor {
-    checkName(serialName)
+    checkNameIsNotAPrimitive(serialName)
     return PrimitiveSerialDescriptor(serialName, kind)
 }
 
-private fun checkName(serialName: String) {
-    val keys = BUILTIN_SERIALIZERS.keys
-    for (primitive in keys) {
-        val simpleName = primitive.simpleName!!.capitalize()
-        val qualifiedName = "kotlin.$simpleName" // KClass.qualifiedName is not supported in JS
-        if (serialName.equals(qualifiedName, ignoreCase = true) || serialName.equals(simpleName, ignoreCase = true)) {
+internal fun checkNameIsNotAPrimitive(serialName: String) {
+    val values = BUILTIN_SERIALIZERS.values
+    for (primitive in values) {
+        val primitiveName = primitive.descriptor.serialName
+        if (serialName == primitiveName) {
             throw IllegalArgumentException("""
                 The name of serial descriptor should uniquely identify associated serializer.
-                For serial name $serialName there already exist ${simpleName.capitalize()}Serializer.
+                For serial name $serialName there already exists ${primitive::class.simpleName}.
                 Please refer to SerialDescriptor documentation for additional information.
             """.trimIndent())
         }
     }
 }
+
+private fun String.capitalize() = replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 
 @Suppress("UNCHECKED_CAST")
 internal fun <T : Any> KClass<T>.builtinSerializerOrNull(): KSerializer<T>? =

@@ -6,23 +6,28 @@ import kotlinx.serialization.json.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.descriptors.*
 
-// NOT @Serializable, will use external serializer
-class Project(
-    // val in a primary constructor -- serialized
-    val name: String
-) {
-    var stars: Int = 0 // property with getter & setter -- serialized
- 
-    val path: String // getter only -- not serialized
-        get() = "kotlin/$name"                                         
+object ColorAsStringSerializer : KSerializer<Color> {
+    override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("my.app.Color", PrimitiveKind.STRING)
 
-    private var locked: Boolean = false // private, not accessible -- not serialized 
-}              
+    override fun serialize(encoder: Encoder, value: Color) {
+        val string = value.rgb.toString(16).padStart(6, '0')
+        encoder.encodeString(string)
+    }
 
-@Serializer(forClass = Project::class)
-object ProjectSerializer
+    override fun deserialize(decoder: Decoder): Color {
+        val string = decoder.decodeString()
+        return Color(string.toInt(16))
+    }
+}
+
+@OptIn(ExperimentalSerializationApi::class)
+@KeepGeneratedSerializer
+@Serializable(with = ColorAsStringSerializer::class)
+class Color(val rgb: Int)
+
 
 fun main() {
-    val data = Project("kotlinx.serialization").apply { stars = 9000 }
-    println(Json.encodeToString(ProjectSerializer, data))
-}
+    val green = Color(0x00ff00)
+    println(Json.encodeToString(green))
+    println(Json.encodeToString(Color.generatedSerializer(), green))
+}  

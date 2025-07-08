@@ -5,6 +5,7 @@
 package kotlinx.serialization
 
 import kotlinx.serialization.modules.*
+import kotlin.native.concurrent.*
 
 @Serializable
 open class PolyBase(val id: Int) {

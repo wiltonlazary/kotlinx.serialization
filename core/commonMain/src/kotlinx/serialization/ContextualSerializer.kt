@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization
@@ -29,7 +29,7 @@ import kotlin.reflect.*
  * @Serializable
  * class ClassWithDate(val data: String, @Contextual val timestamp: Date)
  *
- * val moduleForDate = serializersModule(MyISO8601DateSerializer)
+ * val moduleForDate = serializersModuleOf(MyISO8601DateSerializer)
  * val json = Json { serializersModule = moduleForDate }
  * json.encodeToString(ClassWithDate("foo", Date())
  * ```
@@ -42,24 +42,28 @@ import kotlin.reflect.*
 public class ContextualSerializer<T : Any>(
     private val serializableClass: KClass<T>,
     private val fallbackSerializer: KSerializer<T>?,
-    private val typeParametersSerializers: Array<KSerializer<*>>
+    typeArgumentsSerializers: Array<KSerializer<*>>
 ) : KSerializer<T> {
 
-    // Used from auto-generated code
+    private val typeArgumentsSerializers: List<KSerializer<*>> = typeArgumentsSerializers.asList()
+
+    private fun serializer(serializersModule: SerializersModule): KSerializer<T> =
+        serializersModule.getContextual(serializableClass, typeArgumentsSerializers) ?: fallbackSerializer ?: serializableClass.serializerNotRegistered()
+
+    // Used from the old plugins
+    @Suppress("unused")
     public constructor(serializableClass: KClass<T>) : this(serializableClass, null, EMPTY_SERIALIZER_ARRAY)
 
     public override val descriptor: SerialDescriptor =
-        buildSerialDescriptor("kotlinx.serialization.ContextualSerializer", SerialKind.CONTEXTUAL).withContext(serializableClass)
+        buildSerialDescriptor("kotlinx.serialization.ContextualSerializer", SerialKind.CONTEXTUAL) {
+            annotations = fallbackSerializer?.descriptor?.annotations.orEmpty()
+        }.withContext(serializableClass)
 
     public override fun serialize(encoder: Encoder, value: T) {
-        val clz = value::class
-        val serializer = encoder.serializersModule.getContextual(clz) ?: fallbackSerializer ?: serializableClass.serializerNotRegistered()
-        @Suppress("UNCHECKED_CAST")
-        encoder.encodeSerializableValue(serializer as SerializationStrategy<T>, value)
+        encoder.encodeSerializableValue(serializer(encoder.serializersModule), value)
     }
 
     public override fun deserialize(decoder: Decoder): T {
-        val serializer = decoder.serializersModule.getContextual(serializableClass) ?: fallbackSerializer ?: serializableClass.serializerNotRegistered()
-        return decoder.decodeSerializableValue(serializer)
+        return decoder.decodeSerializableValue(serializer(decoder.serializersModule))
     }
 }

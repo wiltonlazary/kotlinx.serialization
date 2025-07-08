@@ -1,7 +1,7 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
-@file:Suppress("OPTIONAL_DECLARATION_USAGE_IN_NON_COMMON_SOURCE", "UNUSED")
+@file:Suppress("UNUSED")
 
 package kotlinx.serialization.internal
 
@@ -18,7 +18,7 @@ internal open class PluginGeneratedSerialDescriptor(
     override val serialName: String,
     private val generatedSerializer: GeneratedSerializer<*>? = null,
     final override val elementsCount: Int
-) : SerialDescriptor {
+) : SerialDescriptor, CachedNames {
     override val kind: SerialKind get() = StructureKind.CLASS
     override val annotations: List<Annotation> get() = classAnnotations ?: emptyList()
 
@@ -28,24 +28,28 @@ internal open class PluginGeneratedSerialDescriptor(
 
     // Classes rarely have annotations, so we can save up a bit of allocations here
     private var classAnnotations: MutableList<Annotation>? = null
-    private var elementsOptionality = BooleanArray(elementsCount)
-    internal val namesSet: Set<String> get() = indices.keys
+    private val elementsOptionality = BooleanArray(elementsCount)
+    public override val serialNames: Set<String> get() = indices.keys
 
-    // don't change lazy mode: KT-32871, KT-32872
-    private val indices: Map<String, Int> by lazy { buildIndices() }
+    private var indices: Map<String, Int> = emptyMap()
+    // Cache child serializers, they are not cached by the implementation for nullable types
+    private val childSerializers: Array<KSerializer<*>> by lazy(LazyThreadSafetyMode.PUBLICATION) { generatedSerializer?.childSerializers() ?: EMPTY_SERIALIZER_ARRAY }
 
     // Lazy because of JS specific initialization order (#789)
-    private val typeParameterDescriptors: Array<SerialDescriptor> by lazy {
+    internal val typeParameterDescriptors: Array<SerialDescriptor> by lazy(LazyThreadSafetyMode.PUBLICATION) {
         generatedSerializer?.typeParametersSerializers()?.map { it.descriptor }.compactArray()
     }
 
     // Can be without synchronization but Native will likely break due to freezing
-    private val _hashCode: Int by lazy { hashCodeImpl(typeParameterDescriptors) }
+    private val _hashCode: Int by lazy(LazyThreadSafetyMode.PUBLICATION) { hashCodeImpl(typeParameterDescriptors) }
 
     public fun addElement(name: String, isOptional: Boolean = false) {
         names[++added] = name
         elementsOptionality[added] = isOptional
         propertiesAnnotations[added] = null
+        if (added == elementsCount - 1) {
+            indices = buildIndices()
+        }
     }
 
     public fun pushAnnotation(annotation: Annotation) {
@@ -69,8 +73,7 @@ internal open class PluginGeneratedSerialDescriptor(
     }
 
     override fun getElementDescriptor(index: Int): SerialDescriptor {
-        return generatedSerializer?.childSerializers()?.get(index)?.descriptor
-                ?: throw IndexOutOfBoundsException("$serialName descriptor has only $elementsCount elements, index: $index")
+        return childSerializers.getChecked(index).descriptor
     }
 
     override fun isElementOptional(index: Int): Boolean = elementsOptionality.getChecked(index)
@@ -93,13 +96,10 @@ internal open class PluginGeneratedSerialDescriptor(
 
     override fun hashCode(): Int = _hashCode
 
-    override fun toString(): String {
-        return indices.entries.joinToString(", ", "$serialName(", ")") {
-            it.key + ": " + getElementDescriptor(it.value).serialName
-        }
-    }
+    override fun toString(): String = toStringImpl()
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 internal inline fun <reified SD : SerialDescriptor> SD.equalsImpl(
     other: Any?,
     typeParamsAreEqual: (otherDescriptor: SD) -> Boolean
@@ -116,8 +116,8 @@ internal inline fun <reified SD : SerialDescriptor> SD.equalsImpl(
     return true
 }
 
-@Suppress("NOTHING_TO_INLINE")
-internal inline fun SerialDescriptor.hashCodeImpl(typeParams: Array<SerialDescriptor>): Int {
+@OptIn(ExperimentalSerializationApi::class)
+internal fun SerialDescriptor.hashCodeImpl(typeParams: Array<SerialDescriptor>): Int {
     var result = serialName.hashCode()
     result = 31 * result + typeParams.contentHashCode()
     val elementDescriptors = elementDescriptors
@@ -126,4 +126,8 @@ internal inline fun SerialDescriptor.hashCodeImpl(typeParams: Array<SerialDescri
     result = 31 * result + namesHash
     result = 31 * result + kindHash
     return result
+}
+
+internal fun SerialDescriptor.toStringImpl(): String = (0 until elementsCount).joinToString(", ", "$serialName(", ")") { i ->
+    getElementName(i) + ": " + getElementDescriptor(i).serialName
 }

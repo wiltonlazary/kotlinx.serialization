@@ -1,43 +1,62 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2022 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization.json.internal
 
 import kotlinx.serialization.*
+import kotlinx.serialization.builtins.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
 import kotlinx.serialization.json.*
 import kotlinx.serialization.modules.*
-import kotlin.jvm.*
+
+private val unsignedNumberDescriptors = setOf(
+    UInt.serializer().descriptor,
+    ULong.serializer().descriptor,
+    UByte.serializer().descriptor,
+    UShort.serializer().descriptor
+)
+
+internal val SerialDescriptor.isUnsignedNumber: Boolean
+    get() = this.isInline && this in unsignedNumberDescriptors
+
+internal val SerialDescriptor.isUnquotedLiteral: Boolean
+    get() = this.isInline && this == jsonUnquotedLiteralDescriptor
 
 @OptIn(ExperimentalSerializationApi::class)
 internal class StreamingJsonEncoder(
     private val composer: Composer,
     override val json: Json,
     private val mode: WriteMode,
-    private val modeReuseCache: Array<JsonEncoder?>
+    private val modeReuseCache: Array<JsonEncoder?>?
 ) : JsonEncoder, AbstractEncoder() {
 
     internal constructor(
-        output: StringBuilder, json: Json, mode: WriteMode,
+        output: InternalJsonWriter, json: Json, mode: WriteMode,
         modeReuseCache: Array<JsonEncoder?>
     ) : this(Composer(output, json), json, mode, modeReuseCache)
 
-    public override val serializersModule: SerializersModule = json.serializersModule
+    override val serializersModule: SerializersModule = json.serializersModule
     private val configuration = json.configuration
 
     // Forces serializer to wrap all values into quotes
     private var forceQuoting: Boolean = false
-    private var writePolymorphic = false
+    private var polymorphicDiscriminator: String? = null
+    private var polymorphicSerialName: String? = null
 
     init {
         val i = mode.ordinal
-        if (modeReuseCache[i] !== null || modeReuseCache[i] !== this)
-            modeReuseCache[i] = this
+        if (modeReuseCache != null) {
+            if (modeReuseCache[i] !== null || modeReuseCache[i] !== this)
+                modeReuseCache[i] = this
+        }
     }
 
     override fun encodeJsonElement(element: JsonElement) {
+        if (polymorphicDiscriminator != null && element !is JsonObject) {
+            throwJsonElementPolymorphicException(polymorphicSerialName, element)
+        }
         encodeSerializableValue(JsonElementSerializer, element)
     }
 
@@ -46,17 +65,18 @@ internal class StreamingJsonEncoder(
     }
 
     override fun <T> encodeSerializableValue(serializer: SerializationStrategy<T>, value: T) {
-        encodePolymorphically(serializer, value) {
-            writePolymorphic = true
+        encodePolymorphically(serializer, value) { discriminatorName, serialName ->
+            polymorphicDiscriminator = discriminatorName
+            polymorphicSerialName = serialName
         }
     }
 
-    private fun encodeTypeInfo(descriptor: SerialDescriptor) {
+    private fun encodeTypeInfo(discriminator: String, serialName: String) {
         composer.nextItem()
-        encodeString(configuration.classDiscriminator)
+        encodeString(discriminator)
         composer.print(COLON)
         composer.space()
-        encodeString(descriptor.serialName)
+        encodeString(serialName)
     }
 
     override fun beginStructure(descriptor: SerialDescriptor): CompositeEncoder {
@@ -66,22 +86,24 @@ internal class StreamingJsonEncoder(
             composer.indent()
         }
 
-        if (writePolymorphic) {
-            writePolymorphic = false
-            encodeTypeInfo(descriptor)
+        val discriminator = polymorphicDiscriminator
+        if (discriminator != null) {
+            encodeTypeInfo(discriminator, polymorphicSerialName ?: descriptor.serialName)
+            polymorphicDiscriminator = null
+            polymorphicSerialName = null
         }
 
         if (mode == newMode) {
             return this
         }
 
-        return modeReuseCache[newMode.ordinal] ?: StreamingJsonEncoder(composer, json, newMode, modeReuseCache)
+        return modeReuseCache?.get(newMode.ordinal) ?: StreamingJsonEncoder(composer, json, newMode, modeReuseCache)
     }
 
     override fun endStructure(descriptor: SerialDescriptor) {
         if (mode.end != INVALID) {
             composer.unIndent()
-            composer.nextItem()
+            composer.nextItemIfNotFirst()
             composer.print(mode.end)
         }
     }
@@ -122,12 +144,39 @@ internal class StreamingJsonEncoder(
                 if (!composer.writingFirst)
                     composer.print(COMMA)
                 composer.nextItem()
-                encodeString(descriptor.getElementName(index))
+                encodeString(descriptor.getJsonElementName(json, index))
                 composer.print(COLON)
                 composer.space()
             }
         }
         return true
+    }
+
+    override fun <T : Any> encodeNullableSerializableElement(
+        descriptor: SerialDescriptor,
+        index: Int,
+        serializer: SerializationStrategy<T>,
+        value: T?
+    ) {
+        if (value != null || configuration.explicitNulls) {
+            super.encodeNullableSerializableElement(descriptor, index, serializer, value)
+        }
+    }
+
+    override fun encodeInline(descriptor: SerialDescriptor): Encoder =
+        when {
+            descriptor.isUnsignedNumber -> StreamingJsonEncoder(composerAs(::ComposerForUnsignedNumbers), json, mode, null)
+            descriptor.isUnquotedLiteral -> StreamingJsonEncoder(composerAs(::ComposerForUnquotedLiterals), json, mode, null)
+            polymorphicDiscriminator != null -> apply { polymorphicSerialName = descriptor.serialName }
+            else                        -> super.encodeInline(descriptor)
+        }
+
+    private inline fun <reified T: Composer> composerAs(composerCreator: (writer: InternalJsonWriter, forceQuoting: Boolean) -> T): T {
+        // If we're inside encodeInline().encodeSerializableValue, we should preserve the forceQuoting state
+        // inside the composer, but not in the encoder (otherwise we'll get into `if (forceQuoting) encodeString(value.toString())` part
+        // and unsigned numbers would be encoded incorrectly)
+        return if (composer is T) composer
+        else composerCreator(composer.writer, forceQuoting)
     }
 
     override fun encodeNull() {
@@ -158,7 +207,7 @@ internal class StreamingJsonEncoder(
         // First encode value, then check, to have a prettier error message
         if (forceQuoting) encodeString(value.toString()) else composer.print(value)
         if (!configuration.allowSpecialFloatingPointValues && !value.isFinite()) {
-            throw InvalidFloatingPointEncoded(value, composer.sb.toString())
+            throw InvalidFloatingPointEncoded(value, composer.writer.toString())
         }
     }
 
@@ -166,7 +215,7 @@ internal class StreamingJsonEncoder(
         // First encode value, then check, to have a prettier error message
         if (forceQuoting) encodeString(value.toString()) else composer.print(value)
         if (!configuration.allowSpecialFloatingPointValues && !value.isFinite()) {
-            throw InvalidFloatingPointEncoded(value, composer.sb.toString())
+            throw InvalidFloatingPointEncoded(value, composer.writer.toString())
         }
     }
 
@@ -178,43 +227,5 @@ internal class StreamingJsonEncoder(
 
     override fun encodeEnum(enumDescriptor: SerialDescriptor, index: Int) {
         encodeString(enumDescriptor.getElementName(index))
-    }
-
-    internal class Composer(@JvmField internal val sb: StringBuilder, private val json: Json) {
-        private var level = 0
-        var writingFirst = true
-            private set
-
-        fun indent() {
-            writingFirst = true; level++
-        }
-
-        fun unIndent() {
-            level--
-        }
-
-        fun nextItem() {
-            writingFirst = false
-            if (json.configuration.prettyPrint) {
-                print("\n")
-                repeat(level) { print(json.configuration.prettyPrintIndent) }
-            }
-        }
-
-        fun space() {
-            if (json.configuration.prettyPrint)
-                print(' ')
-        }
-
-        fun print(v: Char) = sb.append(v)
-        fun print(v: String) = sb.append(v)
-        fun print(v: Float) = sb.append(v)
-        fun print(v: Double) = sb.append(v)
-        fun print(v: Byte) = sb.append(v)
-        fun print(v: Short) = sb.append(v)
-        fun print(v: Int) = sb.append(v)
-        fun print(v: Long) = sb.append(v)
-        fun print(v: Boolean) = sb.append(v)
-        fun printQuoted(value: String): Unit = sb.printQuoted(value)
     }
 }

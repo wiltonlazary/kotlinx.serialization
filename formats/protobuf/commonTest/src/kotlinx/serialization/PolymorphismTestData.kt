@@ -6,6 +6,7 @@ package kotlinx.serialization
 
 import kotlinx.serialization.modules.*
 import kotlinx.serialization.protobuf.*
+import kotlin.native.concurrent.*
 
 @Serializable
 open class PolyBase(@ProtoNumber(1) val id: Int) {

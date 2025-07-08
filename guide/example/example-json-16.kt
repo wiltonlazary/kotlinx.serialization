@@ -4,33 +4,13 @@ package example.exampleJson16
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
-import kotlinx.serialization.builtins.*
-
 @Serializable
-abstract class Project {
-    abstract val name: String
-}                   
+data class Project(val projectName: String, val projectOwner: String)
 
-@Serializable 
-data class BasicProject(override val name: String): Project() 
-
-            
-@Serializable
-data class OwnedProject(override val name: String, val owner: String) : Project()
-
-object ProjectSerializer : JsonContentPolymorphicSerializer<Project>(Project::class) {
-    override fun selectDeserializer(element: JsonElement) = when {
-        "owner" in element.jsonObject -> OwnedProject.serializer()
-        else -> BasicProject.serializer()
-    }
-}
+@OptIn(ExperimentalSerializationApi::class) // namingStrategy is an experimental setting for now
+val format = Json { namingStrategy = JsonNamingStrategy.SnakeCase }
 
 fun main() {
-    val data = listOf(
-        OwnedProject("kotlinx.serialization", "kotlin"),
-        BasicProject("example")
-    )
-    val string = Json.encodeToString(ListSerializer(ProjectSerializer), data)
-    println(string)
-    println(Json.decodeFromString(ListSerializer(ProjectSerializer), string))
+    val project = format.decodeFromString<Project>("""{"project_name":"kotlinx.coroutines", "project_owner":"Kotlin"}""")
+    println(format.encodeToString(project.copy(projectName = "kotlinx.serialization")))
 }

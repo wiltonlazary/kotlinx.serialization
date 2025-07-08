@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization
@@ -67,14 +67,27 @@ import kotlin.reflect.*
  */
 @OptIn(ExperimentalSerializationApi::class)
 public class PolymorphicSerializer<T : Any>(override val baseClass: KClass<T>) : AbstractPolymorphicSerializer<T>() {
-    public override val descriptor: SerialDescriptor =
+
+    @PublishedApi // See comment in SealedClassSerializer
+    internal constructor(
+        baseClass: KClass<T>,
+        classAnnotations: Array<Annotation>
+    ) : this(baseClass) {
+        _annotations = classAnnotations.asList()
+    }
+
+    private var _annotations: List<Annotation> = emptyList()
+
+    public override val descriptor: SerialDescriptor by lazy(LazyThreadSafetyMode.PUBLICATION) {
         buildSerialDescriptor("kotlinx.serialization.Polymorphic", PolymorphicKind.OPEN) {
             element("type", String.serializer().descriptor)
             element(
                 "value",
                 buildSerialDescriptor("kotlinx.serialization.Polymorphic<${baseClass.simpleName}>", SerialKind.CONTEXTUAL)
             )
+            annotations = _annotations
         }.withContext(baseClass)
+    }
 
     override fun toString(): String {
         return "kotlinx.serialization.PolymorphicSerializer(baseClass: $baseClass)"
@@ -85,7 +98,7 @@ public class PolymorphicSerializer<T : Any>(override val baseClass: KClass<T>) :
 public fun <T : Any> AbstractPolymorphicSerializer<T>.findPolymorphicSerializer(
     decoder: CompositeDecoder,
     klassName: String?
-): DeserializationStrategy<out T> =
+): DeserializationStrategy<T> =
     findPolymorphicSerializerOrNull(decoder, klassName) ?: throwSubtypeNotRegistered(klassName, baseClass)
 
 @InternalSerializationApi

@@ -7,6 +7,7 @@ package kotlinx.serialization.properties
 
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.*
+import kotlinx.serialization.modules.*
 import kotlin.test.*
 
 class PropertiesTest {
@@ -49,6 +50,13 @@ class PropertiesTest {
     @Serializable
     data class NullableEnumData(val data0: TestEnum?, val data1: TestEnum?)
 
+    @Serializable
+    data class SharedPrefixNames(
+        val first: String = "100",
+        val firstSecond: String = "100"
+    )
+
+    @Serializable
     enum class TestEnum { ZERO, ONE }
 
     private inline fun <reified T : Any> assertMappedAndRestored(
@@ -58,8 +66,14 @@ class PropertiesTest {
     ) {
         val map = Properties.encodeToMap(serializer, obj)
         assertEquals(expectedMap, map)
-        val unmap = Properties.decodeFromMap<T>(serializer, map)
+        val unmap = Properties.decodeFromMap(serializer, map)
         assertEquals(obj, unmap)
+
+        val stringMap = Properties.encodeToStringMap(serializer, obj)
+        val expectedStringMap = expectedMap.mapValues { it.value.toString() }
+        assertEquals(expectedStringMap, stringMap)
+        val stringUnmap = Properties.decodeFromStringMap(serializer, stringMap)
+        assertEquals(obj, stringUnmap)
     }
 
     private inline fun <reified T : Any> assertMappedNullableAndRestored(
@@ -69,8 +83,14 @@ class PropertiesTest {
     ) {
         val map = Properties.encodeToMap(serializer, obj)
         assertEquals(expectedMap, map)
-        val unmap = Properties.decodeFromMap<T>(serializer, map)
+        val unmap = Properties.decodeFromMap(serializer, map)
         assertEquals(obj, unmap)
+
+        val stringMap = Properties.encodeToStringMap(serializer, obj)
+        val expectedStringMap = expectedMap.mapValues { it.value.toString() }
+        assertEquals(expectedStringMap, stringMap)
+        val stringUnmap = Properties.decodeFromStringMap(serializer, stringMap)
+        assertEquals(obj, stringUnmap)
     }
 
     @Test
@@ -86,6 +106,12 @@ class PropertiesTest {
     @Test
     fun testUnitIsEmptyMap() {
         assertEquals(emptyMap(), Properties.encodeToMap(Unit.serializer(), Unit))
+    }
+
+    @Test
+    fun testUnitIsEmptyMapModule() {
+        val module = SerializersModule {}
+        assertEquals(emptyMap(), Properties(module).encodeToMap(Unit.serializer(), Unit))
     }
 
     @Test
@@ -198,5 +224,24 @@ class PropertiesTest {
     @Test
     fun testCanReadSizeProperty() {
         assertMappedAndRestored(mapOf("p" to "a", "size" to "b"), TestWithSize("a", "b"), TestWithSize.serializer())
+    }
+
+    @Test
+    fun testSharedPrefixNames() {
+        val map: Map<String, Any> = mapOf("firstSecond" to "42")
+        val restored = Properties.decodeFromMap(SharedPrefixNames.serializer(), map)
+        assertEquals(SharedPrefixNames("100", "42"), restored)
+    }
+
+    @Test
+    fun testEnumElementNotFound() {
+        val wrongElementName = "wrong"
+        val expectedMessage =
+            "Enum '${TestEnum.serializer().descriptor.serialName}' does not contain element with name '${wrongElementName}'"
+
+        val exception = assertFailsWith(SerializationException::class) {
+            Properties.decodeFromStringMap(EnumData.serializer(), mapOf("data" to wrongElementName))
+        }
+        assertEquals(expectedMessage, exception.message)
     }
 }

@@ -4,20 +4,14 @@ package example.exampleJson11
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
+val format = Json { allowSpecialFloatingPointValues = true }
+
+@Serializable
+class Data(
+    val value: Double
+)
+
 fun main() {
-    val element = buildJsonObject {
-        put("name", "kotlinx.serialization")
-        putJsonObject("owner") {
-            put("name", "kotlin")
-        }
-        putJsonArray("forks") {
-            addJsonObject {
-                put("votes", 42)
-            }
-            addJsonObject {
-                put("votes", 9000)
-            }
-        }
-    }
-    println(element)
+    val data = Data(Double.NaN)
+    println(format.encodeToString(data))
 }

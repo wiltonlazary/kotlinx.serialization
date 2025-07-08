@@ -4,29 +4,29 @@ package example.exampleJson13
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*
 
-import kotlinx.serialization.builtins.*
+@OptIn(ExperimentalSerializationApi::class) // JsonClassDiscriminator is an experimental annotation for now
+@Serializable
+@JsonClassDiscriminator("message_type")
+sealed class Base
 
-@Serializable 
-data class Project(
-    val name: String,
-    @Serializable(with = UserListSerializer::class)      
-    val users: List<User>
-)
+@Serializable // Class discriminator is inherited from Base
+sealed class ErrorClass: Base()
 
 @Serializable
-data class User(val name: String)
+data class Message(val message: Base, val error: ErrorClass?)
 
-object UserListSerializer : JsonTransformingSerializer<List<User>>(ListSerializer(User.serializer())) {
-    // If response is not an array, then it is a single object that should be wrapped into the array
-    override fun transformDeserialize(element: JsonElement): JsonElement =
-        if (element !is JsonArray) JsonArray(listOf(element)) else element
-}
+@Serializable
+@SerialName("my.app.BaseMessage")
+data class BaseMessage(val message: String) : Base()
 
-fun main() {     
-    println(Json.decodeFromString<Project>("""
-        {"name":"kotlinx.serialization","users":{"name":"kotlin"}}
-    """))
-    println(Json.decodeFromString<Project>("""
-        {"name":"kotlinx.serialization","users":[{"name":"kotlin"},{"name":"jetbrains"}]}
-    """))
+@Serializable
+@SerialName("my.app.GenericError")
+data class GenericError(@SerialName("error_code") val errorCode: Int) : ErrorClass()
+
+
+val format = Json { classDiscriminator = "#class" }
+
+fun main() {
+    val data = Message(BaseMessage("not found"), GenericError(404))
+    println(format.encodeToString(data))
 }

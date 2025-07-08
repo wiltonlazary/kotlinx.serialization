@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2020 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
+ * Copyright 2017-2021 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license.
  */
 
 package kotlinx.serialization.json.internal
@@ -38,6 +38,11 @@ private open class DynamicInput(
     override val json: Json
 ) : NamedValueDecoder(), JsonDecoder {
 
+    protected val keys: dynamic = js("Object").keys(value ?: js("{}"))
+    protected open val size: Int = keys.length as Int
+
+    private var forceNull: Boolean = false
+
     override val serializersModule: SerializersModule
         get() = json.serializersModule
 
@@ -49,8 +54,10 @@ private open class DynamicInput(
             return json.decodeFromDynamic(JsonElement.serializer(), value[tag])
         }
 
-        val keys: dynamic = js("Object").keys(value)
-        val size: Int = keys.length as Int
+        if (value == null) {
+            return JsonNull
+        }
+
         return buildJsonObject {
             for (i in 0 until size) {
                 val key = keys[i]
@@ -60,25 +67,94 @@ private open class DynamicInput(
         }
     }
 
+    override fun <T> decodeSerializableValue(deserializer: DeserializationStrategy<T>): T {
+        return decodeSerializableValuePolymorphic(deserializer, ::renderTagStack)
+    }
+
+    private fun coerceInputValue(descriptor: SerialDescriptor, index: Int, tag: String): Boolean =
+        json.tryCoerceValue(
+            descriptor, index,
+            { getByTag(tag) == null },
+            { getByTag(tag) as? String }
+        )
+
     override fun composeName(parentName: String, childName: String): String = childName
 
     override fun decodeElementIndex(descriptor: SerialDescriptor): Int {
         while (currentPosition < descriptor.elementsCount) {
             val name = descriptor.getTag(currentPosition++)
-            if (value[name] !== undefined) return currentPosition - 1
+            val index = currentPosition - 1
+            forceNull = false
+
+            if (hasName(name) || setForceNull(descriptor, index)) {
+                // if forceNull is true, then decodeNotNullMark returns false and `null` is automatically inserted
+                // by Decoder.decodeIfNullable
+                if (!json.configuration.coerceInputValues) return index
+
+                if (json.tryCoerceValue(
+                        descriptor, index,
+                        { getByTag(name) == null },
+                        { getByTag(name) as? String },
+                        { // an unknown enum value should be coerced to null via decodeNotNullMark if explicitNulls=false :
+                            if (setForceNull(descriptor, index)) return index
+                        }
+                    )
+                ) continue // do not read coerced value
+
+                return index
+            }
         }
         return CompositeDecoder.DECODE_DONE
     }
 
-    override fun decodeTaggedEnum(tag: String, enumDescriptor: SerialDescriptor): Int =
-        enumDescriptor.getElementIndexOrThrow(getByTag(tag) as String)
+    private fun hasName(name: String) = value[name] !== undefined
+
+    private fun setForceNull(descriptor: SerialDescriptor, index: Int): Boolean {
+        forceNull = !json.configuration.explicitNulls
+                && !descriptor.isElementOptional(index) && descriptor.getElementDescriptor(index).isNullable
+        return forceNull
+    }
+
+    override fun elementName(descriptor: SerialDescriptor, index: Int): String {
+        val strategy = descriptor.namingStrategy(json)
+        val mainName = descriptor.getElementName(index)
+        if (strategy == null) {
+            if (!json.configuration.useAlternativeNames) return mainName
+            // Fast path, do not go through Map.get
+            // Note, it blocks ability to detect collisions between the primary name and alternate,
+            // but it eliminates a significant performance penalty (about -15% without this optimization)
+            if (hasName(mainName)) return mainName
+        }
+        // Slow path
+        val deserializationNamesMap = json.deserializationNamesMap(descriptor)
+        (keys as Array<String>).find { deserializationNamesMap[it] == index }?.let {
+            return it
+        }
+        val fallbackName = strategy?.serialNameForJson(
+            descriptor,
+            index,
+            mainName
+        ) // Key not found exception should be thrown with transformed name, not original
+        return fallbackName ?: mainName
+    }
+
+    override fun decodeTaggedEnum(tag: String, enumDescriptor: SerialDescriptor): Int {
+        val byTag = getByTag(tag)
+        val enumValue = byTag as? String ?: throw SerializationException("Enum value must be a string, got '$byTag'")
+        return enumDescriptor.getJsonNameIndexOrThrow(json, enumValue)
+    }
 
     protected open fun getByTag(tag: String): dynamic = value[tag]
 
     override fun decodeTaggedChar(tag: String): Char {
         return when (val value = getByTag(tag)) {
             is String -> if (value.length == 1) value[0] else throw SerializationException("$value can't be represented as Char")
-            is Number -> value.toChar()
+            is Number -> {
+                val num = value as? Double ?: throw SerializationException("$value is not a Number")
+                val codePoint = toJavascriptLong(num)
+                if (codePoint < 0 || codePoint > Char.MAX_VALUE.code) throw SerializationException("$value can't be represented as Char because it's not in bounds of Char.MIN_VALUE..Char.MAX_VALUE")
+                codePoint.toInt().toChar()
+            }
             else -> throw SerializationException("$value can't be represented as Char")
         }
     }
@@ -105,6 +181,10 @@ private open class DynamicInput(
     }
 
     override fun decodeTaggedNotNullMark(tag: String): Boolean {
+        if (forceNull) {
+            return false
+        }
+
         val o = getByTag(tag)
         if (o === undefined) throwMissingTag(tag)
         @Suppress("SENSELESS_COMPARISON") // null !== undefined !
@@ -136,12 +216,11 @@ private class DynamicMapInput(
     value: dynamic,
     json: Json,
 ) : DynamicInput(value, json) {
-    private val keys: dynamic = js("Object").keys(value)
-    private val size: Int = (keys.length as Int) * 2
+    override val size: Int = (keys.length as Int) * 2
     private var currentPosition = -1
     private val isKey: Boolean get() = currentPosition % 2 == 0
 
-    override fun elementName(desc: SerialDescriptor, index: Int): String {
+    override fun elementName(descriptor: SerialDescriptor, index: Int): String {
         val i = index / 2
         return keys[i] as String
     }
@@ -184,7 +263,7 @@ private class DynamicMapInput(
         if (isKey) {
             val value = decodeTaggedValue(tag)
             if (value !is String) return decode(tag)
-            return value.toString().cast() ?: throwIllegalKeyType(tag, value, type)
+            return value.cast() ?: throwIllegalKeyType(tag, value, type)
         }
         return decode(tag)
     }
@@ -203,14 +282,15 @@ private class DynamicMapInput(
     }
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 private class DynamicListInput(
     value: dynamic,
     json: Json,
 ) : DynamicInput(value, json) {
-    private val size = value.length as Int
+    override val size = value.length as Int
     private var currentPosition = -1
 
-    override fun elementName(desc: SerialDescriptor, index: Int): String = (index).toString()
+    override fun elementName(descriptor: SerialDescriptor, index: Int): String = (index).toString()
 
     override fun decodeElementIndex(descriptor: SerialDescriptor): Int {
         while (currentPosition < size - 1) {
